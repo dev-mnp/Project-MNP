@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save } from 'lucide-react';
+import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save, Download } from 'lucide-react';
 import {
   fetchAllArticles,
   createArticle,
@@ -7,13 +7,31 @@ import {
   toggleArticleStatus,
   ArticleRecord,
 } from '../services/articlesService';
+import { exportToCSV } from '../utils/csvExport';
+import { logAction } from '../services/auditLogService';
+import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
 
 const ArticleManagement: React.FC = () => {
+  const { user } = useAuth();
+  const { showError, showSuccess, showWarning } = useNotifications();
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
   const [filteredArticles, setFilteredArticles] = useState<ArticleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFormMode, setIsFormMode] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -49,7 +67,7 @@ const ArticleManagement: React.FC = () => {
       setArticles(data);
     } catch (error) {
       console.error('Failed to load articles:', error);
-      alert('Failed to load articles. Please try again.');
+      showError('Failed to load articles. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -167,25 +185,32 @@ const ArticleManagement: React.FC = () => {
       await loadArticles();
       resetForm();
       setIsFormMode(false);
+      showSuccess(editingId ? 'Article updated successfully' : 'Article created successfully');
     } catch (error: any) {
       console.error('Failed to save article:', error);
-      alert(error.message || 'Failed to save article. Please try again.');
+      showError(error.message || 'Failed to save article. Please try again.');
     }
   };
 
   const handleToggleStatus = async (id: string, currentStatus: boolean) => {
     const action = currentStatus ? 'inactivate' : 'reactivate';
-    if (!window.confirm(`Are you sure you want to ${action} this article?`)) {
-      return;
-    }
-
+    setConfirmDialog({
+      isOpen: true,
+      title: `${action.charAt(0).toUpperCase() + action.slice(1)} Article`,
+      message: `Are you sure you want to ${action} this article?`,
+      type: 'warning',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
     try {
       await toggleArticleStatus(id, !currentStatus);
       await loadArticles();
+          showSuccess(`Article ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
     } catch (error: any) {
       console.error('Failed to toggle article status:', error);
-      alert(error.message || 'Failed to update article status. Please try again.');
+          showError(error.message || 'Failed to update article status. Please try again.');
     }
+      },
+    });
   };
 
   const clearFilters = () => {
@@ -201,6 +226,40 @@ const ArticleManagement: React.FC = () => {
     categoryFilter !== 'all' ||
     statusFilter !== 'all';
 
+  const handleExport = async () => {
+    try {
+      const exportData = filteredArticles.map((article) => ({
+        article_name: article.article_name,
+        cost_per_unit: article.cost_per_unit,
+        item_type: article.item_type,
+        category: article.category || '',
+        is_active: article.is_active ? 'Active' : 'Inactive',
+        created_at: article.created_at ? new Date(article.created_at).toLocaleDateString() : '',
+      }));
+
+      exportToCSV(exportData, 'articles', [
+        'article_name',
+        'cost_per_unit',
+        'item_type',
+        'category',
+        'is_active',
+        'created_at',
+      ], showWarning);
+
+      // Log export action
+      if (user) {
+        await logAction(user.id, 'EXPORT', 'article', null, {
+          exported_count: exportData.length,
+          filters_applied: hasActiveFilters,
+        });
+      }
+      showSuccess(`Exported ${exportData.length} articles successfully`);
+    } catch (error) {
+      console.error('Error exporting articles:', error);
+      showError('Failed to export articles. Please try again.');
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
@@ -211,6 +270,14 @@ const ArticleManagement: React.FC = () => {
         </h1>
         </div>
         {!isFormMode && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
           <button
             onClick={handleAdd}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -218,6 +285,7 @@ const ArticleManagement: React.FC = () => {
             <Plus className="w-4 h-4" />
             Add Article
           </button>
+          </div>
         )}
       </div>
 

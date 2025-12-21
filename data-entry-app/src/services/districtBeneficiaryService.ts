@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { MasterEntryRecord, ArticleSelection } from '../data/mockData';
+import { logAction } from './auditLogService';
 
 export interface DistrictBeneficiaryEntry {
   id?: string;
@@ -27,6 +28,18 @@ export interface DistrictBeneficiaryEntryWithJoins extends DistrictBeneficiaryEn
 }
 
 /**
+ * Get current user ID from session
+ */
+const getCurrentUserId = async (): Promise<string | null> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.user?.id || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Create district beneficiary entries
  * For district type, we create one entry per article
  */
@@ -44,7 +57,29 @@ export const createDistrictBeneficiaryEntries = async (
       throw error;
     }
 
-    return data || [];
+    const result = data || [];
+
+    // Log audit action with new values
+    if (result.length > 0) {
+      const userId = await getCurrentUserId();
+      const applicationNumber = result[0].application_number;
+      await logAction(userId, 'CREATE', 'district_beneficiary', applicationNumber || null, {
+        entity_name: applicationNumber,
+        entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
+        new_values: {
+          application_number: applicationNumber,
+          district_id: result[0].district_id,
+          entries_count: result.length,
+          entries: result.map((entry) => ({
+            article_id: entry.article_id,
+            quantity: entry.quantity,
+            total_amount: entry.total_amount,
+          })),
+        },
+      });
+    }
+
+    return result;
   } catch (error) {
     console.error('Failed to create district beneficiary entries:', error);
     throw error;
@@ -183,6 +218,13 @@ export const updateDistrictBeneficiaryEntry = async (
   updates: Partial<DistrictBeneficiaryEntry>
 ): Promise<DistrictBeneficiaryEntry> => {
   try {
+    // Fetch old values before update
+    const { data: oldData } = await supabase
+      .from('district_beneficiary_entries')
+      .select('*')
+      .eq('id', id)
+      .single();
+
     const { data, error } = await supabase
       .from('district_beneficiary_entries')
       .update(updates)
@@ -194,6 +236,28 @@ export const updateDistrictBeneficiaryEntry = async (
       console.error('Error updating district beneficiary entry:', error);
       throw error;
     }
+
+    // Log audit action with old and new values
+    const userId = await getCurrentUserId();
+    const updatedFields = Object.keys(updates);
+    const oldValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
+
+    updatedFields.forEach((field) => {
+      if (oldData) {
+        oldValues[field] = oldData[field as keyof typeof oldData];
+      }
+      newValues[field] = updates[field as keyof typeof updates];
+    });
+
+    await logAction(userId, 'UPDATE', 'district_beneficiary', data.application_number || id, {
+      entity_name: data.application_number || id,
+      entity_summary: `District Beneficiary Entry: ${data.application_number || id}`,
+      old_values: oldValues,
+      new_values: newValues,
+      updated_fields: updatedFields,
+      affected_fields: updatedFields,
+    });
 
     return data;
   } catch (error) {
@@ -207,6 +271,13 @@ export const updateDistrictBeneficiaryEntry = async (
  */
 export const deleteDistrictBeneficiaryEntry = async (id: string): Promise<void> => {
   try {
+    // Get entry details before deletion for audit log
+    const { data: entryData } = await supabase
+      .from('district_beneficiary_entries')
+      .select('application_number, district_id')
+      .eq('id', id)
+      .single();
+
     const { error } = await supabase
       .from('district_beneficiary_entries')
       .delete()
@@ -216,6 +287,18 @@ export const deleteDistrictBeneficiaryEntry = async (id: string): Promise<void> 
       console.error('Error deleting district beneficiary entry:', error);
       throw error;
     }
+
+    // Log audit action with deleted values
+    const userId = await getCurrentUserId();
+    await logAction(userId, 'DELETE', 'district_beneficiary', entryData?.application_number || id, {
+      entity_name: entryData?.application_number || id,
+      entity_summary: `District Beneficiary Entry: ${entryData?.application_number || id}`,
+      deleted_values: entryData ? {
+        entry_id: id,
+        application_number: entryData.application_number,
+        district_id: entryData.district_id,
+      } : {},
+    });
   } catch (error) {
     console.error('Failed to delete district beneficiary entry:', error);
     throw error;
@@ -229,6 +312,12 @@ export const deleteDistrictBeneficiaryEntriesByApplicationNumber = async (
   applicationNumber: string
 ): Promise<void> => {
   try {
+    // Get entry count before deletion for audit log
+    const { count } = await supabase
+      .from('district_beneficiary_entries')
+      .select('*', { count: 'exact', head: true })
+      .eq('application_number', applicationNumber);
+
     const { error } = await supabase
       .from('district_beneficiary_entries')
       .delete()
@@ -238,6 +327,17 @@ export const deleteDistrictBeneficiaryEntriesByApplicationNumber = async (
       console.error('Error deleting district beneficiary entries by application number:', error);
       throw error;
     }
+
+    // Log audit action with deleted values
+    const userId = await getCurrentUserId();
+    await logAction(userId, 'DELETE', 'district_beneficiary', applicationNumber, {
+      entity_name: applicationNumber,
+      entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
+      deleted_values: {
+        application_number: applicationNumber,
+        entries_deleted: count || 0,
+      },
+    });
   } catch (error) {
     console.error('Failed to delete district beneficiary entries by application number:', error);
     throw error;

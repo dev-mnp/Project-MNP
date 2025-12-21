@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { RBACProvider } from './contexts/RBACContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import Login from './components/Login';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -12,6 +13,8 @@ import MasterEntry from './components/MasterEntry';
 import ArticleManagement from './components/ArticleManagement';
 import InventoryManagement from './components/InventoryManagement';
 import UserManagement from './components/UserManagement';
+import Profile from './components/Profile';
+import AuditLogs from './components/AuditLogs';
 
 // AppLayout component for authenticated routes
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -98,6 +101,8 @@ const AppContent: React.FC = () => {
                 <Route path="/article-management" element={<ArticleManagement />} />
                 <Route path="/inventory-management" element={<InventoryManagement />} />
                 <Route path="/user-management" element={<UserManagement />} />
+                <Route path="/profile" element={<Profile />} />
+                <Route path="/audit-logs" element={<AuditLogs />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </AppLayout>
@@ -113,7 +118,9 @@ function App() {
     <AuthProvider>
       <SettingsProvider>
         <RBACProvider>
+          <NotificationProvider>
           <AppContent />
+          </NotificationProvider>
         </RBACProvider>
       </SettingsProvider>
     </AuthProvider>

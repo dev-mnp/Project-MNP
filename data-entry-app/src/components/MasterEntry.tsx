@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Save, Trash2, Pencil } from 'lucide-react';
+import { Plus, X, Save, Trash2, Pencil, Download, Loader2 } from 'lucide-react';
 import {
   institutionTypes,
   getRecordsByBeneficiaryType,
@@ -7,6 +7,12 @@ import {
   updateRecord,
   deleteRecord,
 } from '../data/mockData';
+import { exportToCSV } from '../utils/csvExport';
+import { logAction } from '../services/auditLogService';
+import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
+import { useNotifications } from '../contexts/NotificationContext';
+import { ConfirmDialog } from './ConfirmDialog';
 import type {
   MasterEntryRecord,
   Article,
@@ -28,7 +34,9 @@ import {
 type BeneficiaryType = 'district' | 'public' | 'institutions';
 
 const MasterEntry: React.FC = () => {
+  const { user } = useAuth();
   const { canDelete } = useRBAC();
+  const { showError, showSuccess, showWarning } = useNotifications();
   const [beneficiaryTypeFilter, setBeneficiaryTypeFilter] = useState<BeneficiaryType>('district');
   const [isFormMode, setIsFormMode] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
@@ -40,6 +48,25 @@ const MasterEntry: React.FC = () => {
   const [loadingRecords, setLoadingRecords] = useState(true);
   const [existingDistrictEntriesTotal, setExistingDistrictEntriesTotal] = useState(0);
   const [loadingExistingEntries, setLoadingExistingEntries] = useState(true);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportTypes, setExportTypes] = useState({
+    district: true,
+    public: false,
+    institutions: false,
+  });
+  const [exporting, setExporting] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   // Form state
   const [formData, setFormData] = useState<Partial<MasterEntryRecord>>({
@@ -158,10 +185,19 @@ const MasterEntry: React.FC = () => {
   // Handle delete
   const handleDelete = async (e: React.MouseEvent, recordId: string) => {
     e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this record?')) {
-      return;
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Record',
+      message: 'Are you sure you want to delete this record?',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        await handleDeleteConfirmed(recordId);
+      },
+    });
+  };
 
+  const handleDeleteConfirmed = async (recordId: string) => {
     // For district type, delete from database
     if (beneficiaryTypeFilter === 'district') {
       try {
@@ -179,16 +215,17 @@ const MasterEntry: React.FC = () => {
             setRecords(records.filter((r) => r.id !== recordId));
           }
         } else {
-          alert('Record not found or missing application number.');
+          showError('Record not found or missing application number.');
         }
       } catch (error: any) {
         console.error('Failed to delete district entry:', error);
-        alert(error.message || 'Failed to delete record. Please try again.');
+        showError(error.message || 'Failed to delete record. Please try again.');
       }
     } else {
       // For other types, use mock data deletion
       deleteRecord(recordId);
       setRecords(getRecordsByBeneficiaryType(beneficiaryTypeFilter));
+      showSuccess('Entry deleted successfully');
     }
   };
 
@@ -286,7 +323,7 @@ const MasterEntry: React.FC = () => {
         }
 
         if (!applicationNumber) {
-          alert('Failed to generate application number. Please try again.');
+          showError('Failed to generate application number. Please try again.');
           return;
         }
 
@@ -318,7 +355,7 @@ const MasterEntry: React.FC = () => {
         return;
       } catch (error: any) {
         console.error('Failed to save district entry:', error);
-        alert(error.message || 'Failed to save district entry. Please try again.');
+        showError(error.message || 'Failed to save district entry. Please try again.');
         return;
       }
     }
@@ -356,6 +393,137 @@ const MasterEntry: React.FC = () => {
     setRecords(getRecordsByBeneficiaryType(beneficiaryTypeFilter));
     resetForm();
     setIsFormMode(false);
+    showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+  };
+
+  const handleExportClick = () => {
+    setShowExportModal(true);
+  };
+
+  const handleExport = async () => {
+    if (!exportTypes.district && !exportTypes.public && !exportTypes.institutions) {
+      showWarning('Please select at least one beneficiary type to export.');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const exportedTypes: string[] = [];
+
+      // Export District
+      if (exportTypes.district) {
+        const districtRecords = await fetchDistrictBeneficiaryEntriesGrouped();
+        const exportData = districtRecords.flatMap((record) => {
+          if (!record.selectedArticles || record.selectedArticles.length === 0) {
+            return [{
+              application_number: record.applicationNumber,
+              district_name: record.districtName || '',
+              article_name: '',
+              quantity: 0,
+              total_amount: 0,
+              status: '',
+              created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+            }];
+          }
+          return record.selectedArticles.map((article) => ({
+            application_number: record.applicationNumber,
+            district_name: record.districtName || '',
+            article_name: article.articleName,
+            quantity: article.quantity,
+            total_amount: article.totalValue,
+            status: '',
+            created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+          }));
+        });
+
+        if (exportData.length > 0) {
+          exportToCSV(exportData, 'master-entry-district', [
+            'application_number',
+            'district_name',
+            'article_name',
+            'quantity',
+            'total_amount',
+            'status',
+            'created_at',
+          ], showWarning);
+          exportedTypes.push('district');
+        }
+      }
+
+      // Export Public
+      if (exportTypes.public) {
+        const publicRecords = getRecordsByBeneficiaryType('public');
+        const exportData = publicRecords.map((record) => ({
+          application_number: record.applicationNumber,
+          name: record.name || '',
+          aadhar_number: record.aadharNumber || '',
+          article_name: record.articleId ? articles.find(a => a.id === record.articleId)?.name || '' : '',
+          quantity: record.quantity || 0,
+          total_amount: record.totalValue || 0,
+          status: '',
+          created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+        }));
+
+        if (exportData.length > 0) {
+          exportToCSV(exportData, 'master-entry-public', [
+            'application_number',
+            'name',
+            'aadhar_number',
+            'article_name',
+            'quantity',
+            'total_amount',
+            'status',
+            'created_at',
+          ], undefined, showError);
+          exportedTypes.push('public');
+        }
+      }
+
+      // Export Institutions
+      if (exportTypes.institutions) {
+        const institutionsRecords = getRecordsByBeneficiaryType('institutions');
+        const exportData = institutionsRecords.map((record) => ({
+          application_number: record.applicationNumber,
+          institution_name: record.institutionName || '',
+          institution_type: record.institutionType || '',
+          article_name: record.articleId ? articles.find(a => a.id === record.articleId)?.name || '' : '',
+          quantity: record.quantity || 0,
+          total_amount: record.totalValue || 0,
+          status: '',
+          created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+        }));
+
+        if (exportData.length > 0) {
+          exportToCSV(exportData, 'master-entry-institutions', [
+            'application_number',
+            'institution_name',
+            'institution_type',
+            'article_name',
+            'quantity',
+            'total_amount',
+            'status',
+            'created_at',
+          ], showWarning);
+          exportedTypes.push('institutions');
+        }
+      }
+
+      // Log export action
+      if (user) {
+        await logAction(user.id, 'EXPORT', 'master_entry', null, {
+          exported_types: exportedTypes,
+        });
+      }
+
+      setShowExportModal(false);
+      setExportTypes({ district: true, public: false, institutions: false });
+      showSuccess(`Exported ${exportedTypes.length} beneficiary type(s) successfully`);
+    } catch (error) {
+      console.error('Error exporting master entries:', error);
+      showError('Failed to export data. Please try again.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   // Fetch existing entries for selected district to calculate remaining fund
@@ -534,7 +702,7 @@ const MasterEntry: React.FC = () => {
                 Allotted Fund
               </label>
               <p className="text-gray-900 dark:text-white">
-                ₹{selectedDistrict.allottedBudget.toLocaleString('en-IN')}
+                Rs.{selectedDistrict.allottedBudget.toLocaleString('en-IN')}
               </p>
             </div>
             <div>
@@ -547,7 +715,7 @@ const MasterEntry: React.FC = () => {
                 {loadingExistingEntries ? (
                   <span className="text-sm">Calculating...</span>
                 ) : (
-                  `₹${remainingFund.toLocaleString('en-IN')}`
+                  `Rs.${remainingFund.toLocaleString('en-IN')}`
                 )}
               </p>
               {remainingFund < 0 && (
@@ -579,7 +747,7 @@ const MasterEntry: React.FC = () => {
               Total Accrued
             </label>
             <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-semibold text-base">
-              ₹{calculateTotalAccrued().toLocaleString('en-IN')}
+              Rs.{calculateTotalAccrued().toLocaleString('en-IN')}
             </div>
           </div>
         </div>
@@ -726,7 +894,7 @@ const MasterEntry: React.FC = () => {
             <option value="">{loadingArticles ? 'Loading articles...' : 'Select Article'}</option>
             {articles.map((article) => (
               <option key={article.id} value={article.id}>
-                {article.name} (₹{article.costPerUnit.toLocaleString('en-IN')})
+                {article.name} (Rs.{article.costPerUnit.toLocaleString('en-IN')})
               </option>
             ))}
           </select>
@@ -787,7 +955,7 @@ const MasterEntry: React.FC = () => {
             Total Value
           </label>
           <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-medium">
-            ₹{totalValue.toLocaleString('en-IN')}
+            Rs.{totalValue.toLocaleString('en-IN')}
           </div>
         </div>
 
@@ -809,7 +977,7 @@ const MasterEntry: React.FC = () => {
               Total Accrued
             </label>
             <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-semibold text-base">
-              ₹{totalValue.toLocaleString('en-IN')}
+              Rs.{totalValue.toLocaleString('en-IN')}
             </div>
           </div>
         </div>
@@ -935,7 +1103,7 @@ const MasterEntry: React.FC = () => {
               Total Accrued
             </label>
             <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-semibold text-base">
-              ₹{calculateTotalAccrued().toLocaleString('en-IN')}
+              Rs.{calculateTotalAccrued().toLocaleString('en-IN')}
             </div>
           </div>
         </div>
@@ -1059,7 +1227,7 @@ const MasterEntry: React.FC = () => {
                       {record.selectedArticles?.length || 0} article(s)
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                      ₹{(record.totalAccrued || 0).toLocaleString('en-IN')}
+                      Rs.{(record.totalAccrued || 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                       {(() => {
@@ -1079,7 +1247,7 @@ const MasterEntry: React.FC = () => {
                         
                         return (
                           <span className={remaining < 0 ? 'text-red-600 dark:text-red-400' : ''}>
-                            ₹{remaining.toLocaleString('en-IN')}
+                            Rs.{remaining.toLocaleString('en-IN')}
                           </span>
                         );
                       })()}
@@ -1124,7 +1292,7 @@ const MasterEntry: React.FC = () => {
                       {getArticleById(record.articleId || '')?.name || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                      ₹{(record.totalValue || 0).toLocaleString('en-IN')}
+                      Rs.{(record.totalValue || 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {new Date(record.createdAt).toLocaleDateString()}
@@ -1169,7 +1337,7 @@ const MasterEntry: React.FC = () => {
                       {record.selectedArticles?.length || 0} article(s)
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                      ₹{(record.totalAccrued || 0).toLocaleString('en-IN')}
+                      Rs.{(record.totalAccrued || 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {new Date(record.createdAt).toLocaleDateString()}
@@ -1251,6 +1419,14 @@ const MasterEntry: React.FC = () => {
                 </button>
               </>
             ) : (
+              <>
+                <button
+                  onClick={handleExportClick}
+                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Export</span>
+                </button>
               <button
                 onClick={handleAdd}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap w-full sm:w-auto justify-center"
@@ -1258,6 +1434,7 @@ const MasterEntry: React.FC = () => {
                 <Plus className="w-4 h-4" />
                 <span>Add</span>
               </button>
+              </>
             )}
           </div>
         </div>
@@ -1279,6 +1456,105 @@ const MasterEntry: React.FC = () => {
           {renderTable()}
         </div>
       )}
+
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Export Master Entries
+              </h2>
+              <button
+                onClick={() => {
+                  setShowExportModal(false);
+                  setExportTypes({ district: true, public: false, institutions: false });
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Select beneficiary types to export. Separate CSV files will be generated for each selected type.
+              </p>
+
+              <div className="space-y-3">
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportTypes.district}
+                    onChange={(e) => setExportTypes({ ...exportTypes, district: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-900 dark:text-white">District</span>
+                </label>
+
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportTypes.public}
+                    onChange={(e) => setExportTypes({ ...exportTypes, public: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-900 dark:text-white">Public</span>
+                </label>
+
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportTypes.institutions}
+                    onChange={(e) => setExportTypes({ ...exportTypes, institutions: e.target.checked })}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-900 dark:text-white">Institutions & Others</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    setExportTypes({ district: true, public: false, institutions: false });
+                  }}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  disabled={exporting}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={exporting || (!exportTypes.district && !exportTypes.public && !exportTypes.institutions)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {exporting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Exporting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>Export</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

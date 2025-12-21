@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { logAction } from '../services/auditLogService';
 
 interface LoginProps {
   onLogin?: (email: string, password: string) => Promise<void>;
@@ -70,6 +71,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       } else {
         await login(authUser);
       }
+
+      // Log login action
+      await logAction(authUser.id, 'LOGIN', 'system', null, {
+        email: authUser.email,
+        role: authUser.role,
+      });
 
       navigate('/dashboard');
     } catch (err: any) {

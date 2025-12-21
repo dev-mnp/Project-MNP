@@ -7,7 +7,57 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create Supabase client with proper configuration
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
+
+/**
+ * Helper function to wrap Supabase queries with timeout and retry logic
+ * @param queryFn - The Supabase query function to execute
+ * @param maxRetries - Maximum number of retries (default: 1)
+ * @param timeoutMs - Timeout in milliseconds (default: 10000)
+ */
+export async function withTimeoutAndRetry<T>(
+  queryFn: () => Promise<T>,
+  maxRetries: number = 1,
+  timeoutMs: number = 10000
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Query timeout after ${timeoutMs}ms`)), timeoutMs);
+      });
+
+      const result = await Promise.race([queryFn(), timeoutPromise]);
+      return result;
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Don't retry on timeout or abort errors
+      if (error instanceof Error && 
+          (error.message.includes('timeout') || error.message.includes('aborted'))) {
+        throw error;
+      }
+
+      // If this was the last attempt, throw the error
+      if (attempt === maxRetries) {
+        throw error;
+      }
+
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt), 5000)));
+    }
+  }
+
+  throw lastError || new Error('Query failed after retries');
+}
 
 // User role types
 export type UserRole = 'admin' | 'editor' | 'viewer';

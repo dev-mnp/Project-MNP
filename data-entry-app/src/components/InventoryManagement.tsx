@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { Warehouse, RefreshCw, Plus, X, Save, Edit2, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Warehouse, RefreshCw, Plus, X, Save, Edit2, Trash2, Download } from 'lucide-react';
 import { getConsolidatedOrdersWithTracking, type ConsolidatedArticle } from '../services/orderConsolidationService';
 import { createOrderEntry, updateOrderEntry, type OrderEntry, type OrderEntryWithArticle } from '../services/orderService';
+import { exportToCSV } from '../utils/csvExport';
+import { logAction } from '../services/auditLogService';
+import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const InventoryManagement: React.FC = () => {
+  const { user } = useAuth();
+  const { showError, showSuccess, showWarning } = useNotifications();
   const [consolidatedOrders, setConsolidatedOrders] = useState<ConsolidatedArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [showOrderForm, setShowOrderForm] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
   
   // Order form state
   const [orderForm, setOrderForm] = useState<Partial<OrderEntry>>({
@@ -46,10 +65,16 @@ const InventoryManagement: React.FC = () => {
     setExpandedRows(newExpanded);
   };
 
+  const collapseAllRows = () => {
+    setExpandedRows(new Set());
+    setShowOrderForm(null);
+    setEditingOrderId(null);
+  };
+
   const handleCreateOrder = async (articleId: string) => {
     try {
       if (!orderForm.quantity_ordered || orderForm.quantity_ordered <= 0) {
-        alert('Please enter a valid quantity');
+        showWarning('Please enter a valid quantity');
         return;
       }
 
@@ -77,9 +102,10 @@ const InventoryManagement: React.FC = () => {
       
       // Reload data
       await loadConsolidatedOrders();
+      showSuccess('Order created successfully');
     } catch (error: any) {
       console.error('Failed to create order:', error);
-      alert(error.message || 'Failed to create order. Please try again.');
+      showError(error.message || 'Failed to create order. Please try again.');
     }
   };
 
@@ -96,7 +122,7 @@ const InventoryManagement: React.FC = () => {
       await loadConsolidatedOrders();
     } catch (error: any) {
       console.error('Failed to update order:', error);
-      alert(error.message || 'Failed to update order. Please try again.');
+      showError(error.message || 'Failed to update order. Please try again.');
     }
   };
 
@@ -109,7 +135,7 @@ const InventoryManagement: React.FC = () => {
       await loadConsolidatedOrders();
     } catch (error: any) {
       console.error('Failed to delete order:', error);
-      alert(error.message || 'Failed to delete order. Please try again.');
+      showError(error.message || 'Failed to delete order. Please try again.');
     }
   };
 
@@ -145,6 +171,46 @@ const InventoryManagement: React.FC = () => {
   const filteredTotalQuantityOrdered = filteredArticles.reduce((sum, article) => sum + (article.quantityOrdered || 0), 0);
   const filteredTotalQuantityPending = filteredArticles.reduce((sum, article) => sum + (article.quantityPending || 0), 0);
 
+  const handleExport = async () => {
+    try {
+      const exportData = filteredArticles.map((article) => ({
+        article_name: article.articleName,
+        total_quantity_needed: article.totalQuantity,
+        quantity_ordered: article.quantityOrdered || 0,
+        quantity_received: article.quantityReceived || 0,
+        quantity_pending: article.quantityPending || 0,
+        total_value: article.totalValue,
+        breakdown_district: article.breakdown.district,
+        breakdown_public: article.breakdown.public,
+        breakdown_institutions: article.breakdown.institutions,
+      }));
+
+      exportToCSV(exportData, 'inventory-orders', [
+        'article_name',
+        'total_quantity_needed',
+        'quantity_ordered',
+        'quantity_received',
+        'quantity_pending',
+        'total_value',
+        'breakdown_district',
+        'breakdown_public',
+        'breakdown_institutions',
+      ], showWarning);
+
+      // Log export action
+      if (user) {
+        await logAction(user.id, 'EXPORT', 'order', null, {
+          exported_count: exportData.length,
+          search_query: searchQuery || null,
+        });
+      }
+      showSuccess(`Exported ${exportData.length} inventory items successfully`);
+    } catch (error) {
+      console.error('Error exporting inventory:', error);
+      showError('Failed to export inventory. Please try again.');
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
@@ -155,6 +221,13 @@ const InventoryManagement: React.FC = () => {
           </h1>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Export CSV</span>
+          </button>
           <button
             onClick={loadConsolidatedOrders}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -224,12 +297,22 @@ const InventoryManagement: React.FC = () => {
             <p>No orders found.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
+          <div>
+            {/* Collapse All Button */}
+            {expandedRows.size > 0 && (
+              <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <button
+                  onClick={collapseAllRows}
+                  className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+                >
+                  Collapse All ({expandedRows.size})
+                </button>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
               <thead className="bg-gray-50 dark:bg-gray-800">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 w-8">
-                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Article Name
                   </th>
@@ -255,18 +338,17 @@ const InventoryManagement: React.FC = () => {
                   const isExpanded = expandedRows.has(article.articleId);
                   const pending = article.quantityPending || 0;
                   const orders = article.orderSummary?.orders || [];
+                  const quantityOrdered = article.quantityOrdered || 0;
+                  const quantityNeeded = article.totalQuantity;
+                  const isFulfilled = quantityOrdered >= quantityNeeded;
+                  const isExcessOrdered = quantityOrdered > quantityNeeded;
                   
                   return (
                     <React.Fragment key={article.articleId}>
-                      <tr className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => toggleRowExpansion(article.articleId)}
-                            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                          >
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </button>
-                        </td>
+                      <tr 
+                        className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+                        onClick={() => toggleRowExpansion(article.articleId)}
+                      >
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {article.articleName}
                         </td>
@@ -282,10 +364,20 @@ const InventoryManagement: React.FC = () => {
                         <td className={`px-4 py-3 text-sm text-center font-semibold ${pending > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
                           {pending.toLocaleString('en-IN')}
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          {pending > 0 && (
+                        <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-2">
+                            {isFulfilled && (
+                              <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                isExcessOrdered 
+                                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
+                                  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                              }`}>
+                                {isExcessOrdered ? 'Excess Ordered' : 'Fulfilled'}
+                              </span>
+                            )}
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 // Expand the row if not already expanded
                                 if (!expandedRows.has(article.articleId)) {
                                   const newExpanded = new Set(expandedRows);
@@ -295,7 +387,7 @@ const InventoryManagement: React.FC = () => {
                                 setShowOrderForm(article.articleId);
                                 setEditingOrderId(null);
                                 setOrderForm({
-                                  quantity_ordered: Math.min(pending, 1),
+                                  quantity_ordered: pending > 0 ? Math.min(pending, 1) : 1,
                                   order_date: new Date().toISOString().split('T')[0],
                                   status: 'pending',
                                   total_amount: 0,
@@ -306,12 +398,12 @@ const InventoryManagement: React.FC = () => {
                               <Plus className="w-3 h-3" />
                               Order
                             </button>
-                          )}
+                          </div>
                         </td>
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-4 bg-gray-50 dark:bg-gray-800">
+                          <td colSpan={6} className="px-4 py-4 bg-gray-50 dark:bg-gray-800" onClick={(e) => e.stopPropagation()}>
                             <div className="space-y-4">
                               {/* Order History */}
                               <div>
@@ -382,6 +474,52 @@ const InventoryManagement: React.FC = () => {
                                 )}
                               </div>
                               
+                              {/* Beneficiary Type Breakdown */}
+                              <div>
+                                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                                  Quantity Needed by Beneficiary Type
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  {article.breakdown.district > 0 && (
+                                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                      <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
+                                        District
+                                      </div>
+                                      <div className="text-lg font-bold text-blue-900 dark:text-blue-100">
+                                        {article.breakdown.district.toLocaleString('en-IN')}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {article.breakdown.public > 0 && (
+                                    <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                                      <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">
+                                        Public
+                                      </div>
+                                      <div className="text-lg font-bold text-green-900 dark:text-green-100">
+                                        {article.breakdown.public.toLocaleString('en-IN')}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {article.breakdown.institutions > 0 && (
+                                    <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                                      <div className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">
+                                        Institutions & Others
+                                      </div>
+                                      <div className="text-lg font-bold text-purple-900 dark:text-purple-100">
+                                        {article.breakdown.institutions.toLocaleString('en-IN')}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {article.breakdown.district === 0 && 
+                                   article.breakdown.public === 0 && 
+                                   article.breakdown.institutions === 0 && (
+                                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                                      No beneficiary entries found for this article.
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              
                               {/* Order Form */}
                               {showOrderForm === article.articleId && (
                                 <div className="mt-4 p-4 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
@@ -396,10 +534,10 @@ const InventoryManagement: React.FC = () => {
                                       <input
                                         type="number"
                                         min="1"
-                                        max={editingOrderId ? undefined : pending}
                                         value={orderForm.quantity_ordered || 1}
                                         onChange={(e) => setOrderForm({ ...orderForm, quantity_ordered: parseInt(e.target.value) || 1 })}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+                                        placeholder="Enter quantity"
                                       />
                                     </div>
                                     <div>
@@ -504,9 +642,19 @@ const InventoryManagement: React.FC = () => {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

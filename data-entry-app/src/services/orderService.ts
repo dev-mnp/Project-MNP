@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { logAction } from './auditLogService';
 
 export interface OrderEntry {
   id?: string;
@@ -37,6 +38,18 @@ export interface ArticleOrderSummary {
 }
 
 /**
+ * Get current user ID from session
+ */
+const getCurrentUserId = async (): Promise<string | null> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.user?.id || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Create a new order entry
  */
 export const createOrderEntry = async (
@@ -54,6 +67,23 @@ export const createOrderEntry = async (
       throw error;
     }
 
+    // Log audit action with new values
+    const userId = await getCurrentUserId();
+    await logAction(userId, 'CREATE', 'order', data.id, {
+      entity_summary: `Order Entry for Article: ${data.article_id}`,
+      new_values: {
+        article_id: data.article_id,
+        quantity_ordered: data.quantity_ordered,
+        order_date: data.order_date,
+        status: data.status,
+        total_amount: data.total_amount,
+        supplier_name: data.supplier_name,
+        supplier_contact: data.supplier_contact,
+        unit_price: data.unit_price,
+        expected_delivery_date: data.expected_delivery_date,
+      },
+    });
+
     return data;
   } catch (error) {
     console.error('Failed to create order entry:', error);
@@ -69,6 +99,13 @@ export const updateOrderEntry = async (
   updates: Partial<OrderEntry>
 ): Promise<OrderEntry> => {
   try {
+    // Fetch old values before update
+    const { data: oldData } = await supabase
+      .from('order_entries')
+      .select('*')
+      .eq('id', id)
+      .single();
+
     const { data, error } = await supabase
       .from('order_entries')
       .update(updates)
@@ -80,6 +117,32 @@ export const updateOrderEntry = async (
       console.error('Error updating order entry:', error);
       throw error;
     }
+
+    // Log audit action with old and new values
+    const userId = await getCurrentUserId();
+    const actionType = updates.status ? 'STATUS_CHANGE' : 'UPDATE';
+    const updatedFields = Object.keys(updates);
+    const oldValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
+
+    updatedFields.forEach((field) => {
+      if (oldData) {
+        oldValues[field] = oldData[field as keyof typeof oldData];
+      }
+      newValues[field] = updates[field as keyof typeof updates];
+    });
+
+    await logAction(userId, actionType, 'order', id, {
+      entity_summary: `Order Entry for Article: ${data.article_id}`,
+      old_values: oldValues,
+      new_values: newValues,
+      updated_fields: updatedFields,
+      affected_fields: updatedFields,
+      ...(actionType === 'STATUS_CHANGE' ? {
+        previous_status: oldData?.status,
+        new_status: data.status,
+      } : {}),
+    });
 
     return data;
   } catch (error) {
@@ -93,6 +156,13 @@ export const updateOrderEntry = async (
  */
 export const deleteOrderEntry = async (id: string): Promise<void> => {
   try {
+    // Get entry details before deletion for audit log
+    const { data: entryData } = await supabase
+      .from('order_entries')
+      .select('article_id, quantity_ordered, status')
+      .eq('id', id)
+      .single();
+
     const { error } = await supabase
       .from('order_entries')
       .delete()
@@ -102,6 +172,21 @@ export const deleteOrderEntry = async (id: string): Promise<void> => {
       console.error('Error deleting order entry:', error);
       throw error;
     }
+
+    // Log audit action with deleted values
+    const userId = await getCurrentUserId();
+    await logAction(userId, 'DELETE', 'order', id, {
+      entity_summary: `Order Entry for Article: ${entryData?.article_id}`,
+      deleted_values: entryData ? {
+        article_id: entryData.article_id,
+        quantity_ordered: entryData.quantity_ordered,
+        order_date: entryData.order_date,
+        status: entryData.status,
+        total_amount: entryData.total_amount,
+        supplier_name: entryData.supplier_name,
+        supplier_contact: entryData.supplier_contact,
+      } : {},
+    });
   } catch (error) {
     console.error('Failed to delete order entry:', error);
     throw error;

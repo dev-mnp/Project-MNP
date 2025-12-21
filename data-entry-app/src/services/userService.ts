@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { UserRole } from '../lib/supabase';
+import { logAction } from './auditLogService';
 
 export interface AppUser {
   id: string;
@@ -86,6 +87,18 @@ export const fetchUserByEmail = async (email: string): Promise<AppUser | null> =
 };
 
 /**
+ * Get current user ID from session
+ */
+const getCurrentUserId = async (): Promise<string | null> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.user?.id || null;
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Create a new user (creates auth user and app_users record)
  * Uses signUp which doesn't require admin privileges
  * Note: User will need to confirm email unless email confirmation is disabled in Supabase
@@ -139,6 +152,21 @@ export const createUser = async (userData: CreateUserData): Promise<AppUser> => 
       throw new Error('User created but failed to set up profile. Please contact administrator.');
     }
 
+    // Log audit action with new values
+    const currentUserId = await getCurrentUserId();
+    await logAction(currentUserId, 'CREATE', 'user', data.id, {
+      entity_name: data.name || data.email,
+      entity_summary: `User: ${data.email}`,
+      new_values: {
+        email: data.email,
+        name: data.name,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        role: data.role,
+        status: data.status,
+      },
+    });
+
     return data;
   } catch (error) {
     console.error('Error creating user:', error);
@@ -154,11 +182,12 @@ export const updateUser = async (
   userData: UpdateUserData
 ): Promise<AppUser> => {
   try {
+    // Fetch old values before update
+    const currentUser = await fetchUserById(userId);
+    
     // Generate name from first_name and last_name if they're being updated
     let updateData = { ...userData };
     if (userData.first_name !== undefined || userData.last_name !== undefined) {
-      // Fetch current user to get existing values
-      const currentUser = await fetchUserById(userId);
       const firstName = userData.first_name !== undefined ? userData.first_name : currentUser?.first_name || '';
       const lastName = userData.last_name !== undefined ? userData.last_name : currentUser?.last_name || '';
       const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || currentUser?.email || '';
@@ -174,6 +203,28 @@ export const updateUser = async (
 
     if (error) throw error;
 
+    // Log audit action with old and new values
+    const currentUserId = await getCurrentUserId();
+    const updatedFields = Object.keys(updateData);
+    const oldValues: Record<string, any> = {};
+    const newValues: Record<string, any> = {};
+
+    updatedFields.forEach((field) => {
+      if (currentUser) {
+        oldValues[field] = currentUser[field as keyof typeof currentUser];
+      }
+      newValues[field] = updateData[field as keyof typeof updateData];
+    });
+
+    await logAction(currentUserId, 'UPDATE', 'user', userId, {
+      entity_name: data.name || data.email,
+      entity_summary: `User: ${data.email}`,
+      old_values: oldValues,
+      new_values: newValues,
+      updated_fields: updatedFields,
+      affected_fields: updatedFields,
+    });
+
     return data;
   } catch (error) {
     console.error('Error updating user:', error);
@@ -188,6 +239,9 @@ export const updateUser = async (
  */
 export const deleteUser = async (userId: string): Promise<void> => {
   try {
+    // Get user details before deletion for audit log
+    const userData = await fetchUserById(userId);
+
     // Delete from app_users
     // The user won't be able to log in without this record
     const { error: appError } = await supabase
@@ -196,6 +250,21 @@ export const deleteUser = async (userId: string): Promise<void> => {
       .eq('id', userId);
 
     if (appError) throw appError;
+
+    // Log audit action with deleted values
+    const currentUserId = await getCurrentUserId();
+    await logAction(currentUserId, 'DELETE', 'user', userId, {
+      entity_name: userData?.name || userData?.email,
+      entity_summary: `User: ${userData?.email}`,
+      deleted_values: userData ? {
+        email: userData.email,
+        name: userData.name,
+        first_name: userData.first_name,
+        last_name: userData.last_name,
+        role: userData.role,
+        status: userData.status,
+      } : {},
+    });
 
     // Note: We can't delete from auth.users without admin privileges
     // For a complete deletion, use Supabase Dashboard or set up an admin endpoint

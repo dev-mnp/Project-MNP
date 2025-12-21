@@ -1,17 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, X, Save, Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Plus, Edit, Trash2, X, Save, Loader2, AlertCircle, Eye, EyeOff, Download } from 'lucide-react';
 import { useRBAC } from '../contexts/RBACContext';
 import { AppUser, CreateUserData, UpdateUserData, fetchAllUsers, createUser, updateUser, deleteUser } from '../services/userService';
 import { UserRole } from '../lib/supabase';
+import { exportToCSV } from '../utils/csvExport';
+import { logAction } from '../services/auditLogService';
+import { useAuth } from '../contexts/AuthContext';
+import { useNotifications } from '../contexts/NotificationContext';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const UserManagement: React.FC = () => {
+  const { user } = useAuth();
   const { isAdmin, hasPermission } = useRBAC();
+  const { showError, showSuccess, showWarning } = useNotifications();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    type?: 'danger' | 'warning' | 'info';
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   // Form state
   const [formData, setFormData] = useState<CreateUserData & { confirmPassword?: string }>({
@@ -94,7 +113,19 @@ const UserManagement: React.FC = () => {
   };
 
   const handleDelete = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete User',
+      message: 'Are you sure you want to delete this user?',
+      type: 'danger',
+      onConfirm: async () => {
+        setConfirmDialog({ ...confirmDialog, isOpen: false });
+        await handleDeleteConfirmed(userId);
+      },
+    });
+  };
+
+  const handleDeleteConfirmed = async (userId: string) => {
 
     try {
       setError('');
@@ -128,6 +159,41 @@ const UserManagement: React.FC = () => {
     });
   };
 
+  const handleExport = async () => {
+    try {
+      const exportData = users.map((u) => ({
+        name: u.name || '',
+        email: u.email,
+        first_name: u.first_name || '',
+        last_name: u.last_name || '',
+        role: u.role,
+        status: u.status,
+        created_at: u.created_at ? new Date(u.created_at).toLocaleDateString() : '',
+      }));
+
+      exportToCSV(exportData, 'users', [
+        'name',
+        'email',
+        'first_name',
+        'last_name',
+        'role',
+        'status',
+        'created_at',
+      ], showWarning);
+
+      // Log export action
+      if (user) {
+        await logAction(user.id, 'EXPORT', 'user', null, {
+          exported_count: exportData.length,
+        });
+      }
+      showSuccess(`Exported ${exportData.length} users successfully`);
+    } catch (error) {
+      console.error('Error exporting users:', error);
+      showError('Failed to export users. Please try again.');
+    }
+  };
+
   if (!isAdmin && !hasPermission('users:read')) {
     return (
       <div className="p-6">
@@ -142,6 +208,14 @@ const UserManagement: React.FC = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">User Management</h1>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExport}
+            className="flex items-center space-x-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export CSV</span>
+          </button>
         {(isAdmin || hasPermission('users:write')) && (
           <button
             onClick={() => {
@@ -154,6 +228,7 @@ const UserManagement: React.FC = () => {
             <span>Add User</span>
           </button>
         )}
+        </div>
       </div>
 
       {error && (
@@ -388,6 +463,15 @@ const UserManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

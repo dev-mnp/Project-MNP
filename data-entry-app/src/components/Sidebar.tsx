@@ -14,6 +14,7 @@ import {
   Package,
   Warehouse,
   Users,
+  ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRBAC } from '../contexts/RBACContext';
@@ -49,6 +50,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Add user management for admin
   if (isAdmin || hasPermission('users:read')) {
     menuItems.push({ id: 'user-management', label: 'User Management', icon: Users, path: '/user-management' });
+  }
+
+  // Add audit logs for admin only
+  if (isAdmin) {
+    menuItems.push({ id: 'audit-logs', label: 'Audit Logs', icon: ClipboardList, path: '/audit-logs' });
   }
 
   const toggleSidebar = () => {
