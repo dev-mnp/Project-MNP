@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
-import { getRecordsByBeneficiaryType } from '../data/mockData';
 import { fetchDistrictBeneficiaryEntriesGrouped } from './districtBeneficiaryService';
+import { fetchInstitutionBeneficiaryEntriesGrouped } from './institutionBeneficiaryService';
 import { fetchAllArticles } from './articlesService';
 import type { MasterEntryRecord, ArticleSelection } from '../data/mockData';
 import { getOrderSummaryByArticle } from './orderService';
@@ -47,9 +47,49 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
     // Fetch district entries from database
     const districtRecords = await fetchDistrictBeneficiaryEntriesGrouped();
     
-    // Fetch public and institutions from mock data (for now)
-    const publicRecords = getRecordsByBeneficiaryType('public');
-    const institutionsRecords = getRecordsByBeneficiaryType('institutions');
+    // Fetch public entries from database
+    const { data: publicData, error: publicError } = await supabase
+      .from('public_beneficiary_entries')
+      .select(`
+        id,
+        application_number,
+        name,
+        aadhar_number,
+        is_handicapped,
+        address,
+        mobile,
+        article_id,
+        quantity,
+        total_amount,
+        notes,
+        status,
+        created_at
+      `);
+
+    if (publicError) {
+      console.error('Failed to fetch public entries:', publicError);
+    }
+
+    // Transform public entries to MasterEntryRecord format
+    const publicRecords: MasterEntryRecord[] = (publicData || []).map((entry: any) => ({
+      id: entry.id,
+      applicationNumber: entry.application_number || '',
+      beneficiaryType: 'public' as const,
+      createdAt: entry.created_at,
+      aadharNumber: entry.aadhar_number,
+      name: entry.name,
+      handicapped: entry.is_handicapped,
+      address: entry.address,
+      mobile: entry.mobile,
+      articleId: entry.article_id,
+      quantity: entry.quantity,
+      costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+      totalValue: entry.total_amount,
+      comments: entry.notes || '',
+    }));
+    
+    // Fetch institutions entries from database
+    const institutionsRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
     
     // Consolidate articles by article ID
     const consolidatedMap = new Map<string, ConsolidatedArticle>();

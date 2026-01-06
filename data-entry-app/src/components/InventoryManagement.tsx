@@ -7,6 +7,7 @@ import { logAction } from '../services/auditLogService';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { ConfirmDialog } from './ConfirmDialog';
+import { CURRENCY_SYMBOL } from '../constants/currency';
 
 const InventoryManagement: React.FC = () => {
   const { user } = useAuth();
@@ -448,7 +449,7 @@ const InventoryManagement: React.FC = () => {
                                               {order.supplier_name || '-'}
                                             </td>
                                             <td className="px-3 py-2 text-right text-gray-900 dark:text-white">
-                                              ₹{typeof order.total_amount === 'string' ? parseFloat(order.total_amount).toLocaleString('en-IN') : (order.total_amount || 0).toLocaleString('en-IN')}
+                                              {CURRENCY_SYMBOL}{typeof order.total_amount === 'string' ? parseFloat(order.total_amount).toLocaleString('en-IN') : (order.total_amount || 0).toLocaleString('en-IN')}
                                             </td>
                                             <td className="px-3 py-2 text-right">
                                               <div className="flex items-center justify-end gap-2">

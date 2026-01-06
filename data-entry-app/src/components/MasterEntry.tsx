@@ -1,11 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Save, Trash2, Pencil, Download, Loader2 } from 'lucide-react';
+import { Plus, X, Save, Trash2, Pencil, Download, Loader2, Info } from 'lucide-react';
 import {
   institutionTypes,
-  getRecordsByBeneficiaryType,
-  addRecord,
-  updateRecord,
-  deleteRecord,
 } from '../data/mockData';
 import { exportToCSV } from '../utils/csvExport';
 import { logAction } from '../services/auditLogService';
@@ -17,6 +13,7 @@ import type {
   MasterEntryRecord,
   Article,
   District,
+  ArticleSelection,
 } from '../data/mockData';
 import { generateApplicationNumber, generateApplicationNumberFromDB } from '../utils/applicationNumberGenerator';
 import MultiSelectArticles from './MultiSelectArticles';
@@ -30,6 +27,12 @@ import {
   fetchDistrictBeneficiaryEntries,
   fetchDistrictBeneficiaryEntryByDistrictId,
 } from '../services/districtBeneficiaryService';
+import {
+  createInstitutionBeneficiaryEntries,
+  fetchInstitutionBeneficiaryEntriesGrouped,
+  deleteInstitutionBeneficiaryEntriesByApplicationNumber,
+} from '../services/institutionBeneficiaryService';
+import { CURRENCY_SYMBOL } from '../constants/currency';
 
 type BeneficiaryType = 'district' | 'public' | 'institutions';
 
@@ -49,6 +52,7 @@ const MasterEntry: React.FC = () => {
   const [existingDistrictEntriesTotal, setExistingDistrictEntriesTotal] = useState(0);
   const [loadingExistingEntries, setLoadingExistingEntries] = useState(true);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [exportTypes, setExportTypes] = useState({
     district: true,
     public: false,
@@ -124,18 +128,58 @@ const MasterEntry: React.FC = () => {
           // Fetch from database for district type
           const dbRecords = await fetchDistrictBeneficiaryEntriesGrouped();
           setRecords(dbRecords);
-        } else {
-          // Use mock data for other types
-          const mockRecords = getRecordsByBeneficiaryType(beneficiaryTypeFilter);
-          setRecords(mockRecords);
+        } else if (beneficiaryTypeFilter === 'public') {
+          // Fetch from database for public type
+          const { data, error } = await supabase
+            .from('public_beneficiary_entries')
+            .select(`
+              id,
+              application_number,
+              name,
+              aadhar_number,
+              is_handicapped,
+              address,
+              mobile,
+              article_id,
+              quantity,
+              total_amount,
+              notes,
+              status,
+              created_at
+            `)
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+
+          // Transform to MasterEntryRecord format
+          const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
+            id: entry.id,
+            applicationNumber: entry.application_number || '',
+            beneficiaryType: 'public' as const,
+            createdAt: entry.created_at,
+            aadharNumber: entry.aadhar_number,
+            name: entry.name,
+            handicapped: entry.is_handicapped,
+            address: entry.address,
+            mobile: entry.mobile,
+            articleId: entry.article_id,
+            quantity: entry.quantity,
+            costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+            totalValue: entry.total_amount,
+            comments: entry.notes || '',
+          }));
+
+          setRecords(publicRecords);
+        } else if (beneficiaryTypeFilter === 'institutions') {
+          // Institutions: No DB table yet - show empty array
+          setRecords([]);
+          showWarning('Institutions functionality requires a database table. Please contact the administrator.');
         }
       } catch (error) {
         console.error('Failed to load records:', error);
-        // Fallback to mock data or empty array
-        if (beneficiaryTypeFilter === 'district') {
-          setRecords([]);
-        } else {
-          setRecords(getRecordsByBeneficiaryType(beneficiaryTypeFilter));
+        setRecords([]);
+        if (beneficiaryTypeFilter === 'public') {
+          showError('Failed to load public beneficiary entries. Please try again.');
         }
       } finally {
         setLoadingRecords(false);
@@ -154,6 +198,28 @@ const MasterEntry: React.FC = () => {
   // Helper function to get district by ID
   const getDistrictById = (id: string): District | undefined => {
     return districts.find(d => d.id === id);
+  };
+
+  // Helper function to detect duplicate articles
+  const getDuplicateArticles = (selectedArticles: ArticleSelection[]): Array<{name: string, count: number}> => {
+    const articleCounts = new Map<string, number>();
+    
+    selectedArticles.forEach(article => {
+      const count = articleCounts.get(article.articleId) || 0;
+      articleCounts.set(article.articleId, count + 1);
+    });
+    
+    const duplicates: Array<{name: string, count: number}> = [];
+    articleCounts.forEach((count, articleId) => {
+      if (count > 1) {
+        const article = selectedArticles.find(a => a.articleId === articleId);
+        if (article) {
+          duplicates.push({ name: article.articleName, count });
+        }
+      }
+    });
+    
+    return duplicates;
   };
 
   // Reset form
@@ -180,6 +246,17 @@ const MasterEntry: React.FC = () => {
     setFormData(record);
     setEditingRecordId(record.id);
     setIsFormMode(true);
+  };
+
+  // Toggle row expansion
+  const toggleRowExpansion = (recordId: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(recordId)) {
+      newExpanded.delete(recordId);
+    } else {
+      newExpanded.add(recordId);
+    }
+    setExpandedRows(newExpanded);
   };
 
   // Handle delete
@@ -221,11 +298,85 @@ const MasterEntry: React.FC = () => {
         console.error('Failed to delete district entry:', error);
         showError(error.message || 'Failed to delete record. Please try again.');
       }
-    } else {
-      // For other types, use mock data deletion
-      deleteRecord(recordId);
-      setRecords(getRecordsByBeneficiaryType(beneficiaryTypeFilter));
-      showSuccess('Entry deleted successfully');
+    } else if (beneficiaryTypeFilter === 'public') {
+      // Delete from database for public type
+      try {
+        const { error } = await supabase
+          .from('public_beneficiary_entries')
+          .delete()
+          .eq('id', recordId);
+
+        if (error) throw error;
+
+        // Refresh records from database
+        const { data, error: fetchError } = await supabase
+          .from('public_beneficiary_entries')
+          .select(`
+            id,
+            application_number,
+            name,
+            aadhar_number,
+            is_handicapped,
+            address,
+            mobile,
+            article_id,
+            quantity,
+            total_amount,
+            notes,
+            status,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
+
+        if (fetchError) throw fetchError;
+
+        const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
+          id: entry.id,
+          applicationNumber: entry.application_number || '',
+          beneficiaryType: 'public' as const,
+          createdAt: entry.created_at,
+          aadharNumber: entry.aadhar_number,
+          name: entry.name,
+          handicapped: entry.is_handicapped,
+          address: entry.address,
+          mobile: entry.mobile,
+          articleId: entry.article_id,
+          quantity: entry.quantity,
+          costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+          totalValue: entry.total_amount,
+          comments: entry.notes || '',
+        }));
+
+        setRecords(publicRecords);
+        showSuccess('Entry deleted successfully');
+      } catch (error: any) {
+        console.error('Failed to delete public entry:', error);
+        showError(error.message || 'Failed to delete record. Please try again.');
+      }
+    } else if (beneficiaryTypeFilter === 'institutions') {
+      // Delete from database for institutions type
+      try {
+        const record = records.find((r) => r.id === recordId);
+        if (record && record.applicationNumber) {
+          await deleteInstitutionBeneficiaryEntriesByApplicationNumber(record.applicationNumber);
+          
+          // Refresh records from database
+          try {
+            const dbRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
+            setRecords(dbRecords);
+          } catch (refreshError) {
+            console.error('Failed to refresh records after delete:', refreshError);
+            // Remove from local state as fallback
+            setRecords(records.filter((r) => r.id !== recordId));
+          }
+        } else {
+          showError('Record not found or missing application number.');
+        }
+        showSuccess('Entry deleted successfully');
+      } catch (error: any) {
+        console.error('Failed to delete institution entry:', error);
+        showError(error.message || 'Failed to delete record. Please try again.');
+      }
     }
   };
 
@@ -360,40 +511,179 @@ const MasterEntry: React.FC = () => {
       }
     }
 
-    // For public type, ensure totalValue is set
+    // For public type, save to database
     if (formData.beneficiaryType === 'public') {
       const costPerUnit = formData.costPerUnit || 0;
       const quantity = formData.quantity || 0;
-      formData.totalValue = costPerUnit * quantity;
+      const totalValue = costPerUnit * quantity;
+
+      try {
+        // Generate application number
+        const applicationNumber = await generateApplicationNumberFromDB('public');
+
+        if (editingRecordId) {
+          // Update existing record
+          const { error } = await supabase
+            .from('public_beneficiary_entries')
+            .update({
+              application_number: formData.applicationNumber,
+              name: formData.name,
+              aadhar_number: formData.aadharNumber,
+              is_handicapped: formData.handicapped || false,
+              address: formData.address,
+              mobile: formData.mobile,
+              article_id: formData.articleId,
+              quantity: quantity,
+              total_amount: totalValue,
+              notes: formData.comments || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', editingRecordId);
+
+          if (error) throw error;
+        } else {
+          // Create new record
+          const { error } = await supabase
+            .from('public_beneficiary_entries')
+            .insert({
+              application_number: applicationNumber,
+              name: formData.name,
+              aadhar_number: formData.aadharNumber,
+              is_handicapped: formData.handicapped || false,
+              address: formData.address,
+              mobile: formData.mobile,
+              article_id: formData.articleId,
+              quantity: quantity,
+              total_amount: totalValue,
+              notes: formData.comments || null,
+              status: 'pending',
+              created_by: user?.id || null,
+            });
+
+          if (error) throw error;
+        }
+
+        // Refresh records from database
+        const { data, error: fetchError } = await supabase
+          .from('public_beneficiary_entries')
+          .select(`
+            id,
+            application_number,
+            name,
+            aadhar_number,
+            is_handicapped,
+            address,
+            mobile,
+            article_id,
+            quantity,
+            total_amount,
+            notes,
+            status,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
+
+        if (fetchError) throw fetchError;
+
+        const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
+          id: entry.id,
+          applicationNumber: entry.application_number || '',
+          beneficiaryType: 'public' as const,
+          createdAt: entry.created_at,
+          aadharNumber: entry.aadhar_number,
+          name: entry.name,
+          handicapped: entry.is_handicapped,
+          address: entry.address,
+          mobile: entry.mobile,
+          articleId: entry.article_id,
+          quantity: entry.quantity,
+          costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+          totalValue: entry.total_amount,
+          comments: entry.notes || '',
+        }));
+
+        setRecords(publicRecords);
+        resetForm();
+        setIsFormMode(false);
+        showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+        return;
+      } catch (error: any) {
+        console.error('Failed to save public entry:', error);
+        showError(error.message || 'Failed to save entry. Please try again.');
+        return;
+      }
     }
 
-    if (editingRecordId) {
-      // Update existing record
-      updateRecord(editingRecordId, {
-        ...formData,
-        totalAccrued,
-      } as MasterEntryRecord);
-    } else {
-      // Create new record
-      const applicationNumber = generateApplicationNumber(
-        formData.beneficiaryType as BeneficiaryType
-      );
-      const newRecord: MasterEntryRecord = {
-        id: Date.now().toString(),
-        applicationNumber,
-        beneficiaryType: formData.beneficiaryType as BeneficiaryType,
-        ...formData,
-        totalAccrued,
-        createdAt: now,
-      } as MasterEntryRecord;
-      addRecord(newRecord);
-    }
+    // For institutions type, save to database
+    if (formData.beneficiaryType === 'institutions') {
+      if (!formData.selectedArticles || formData.selectedArticles.length === 0) {
+        showError('Please select at least one article.');
+        return;
+      }
 
-    // Refresh records
-    setRecords(getRecordsByBeneficiaryType(beneficiaryTypeFilter));
-    resetForm();
-    setIsFormMode(false);
-    showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+      if (!formData.institutionName) {
+        showError('Institution name is required.');
+        return;
+      }
+
+      if (!formData.institutionType) {
+        showError('Institution type is required.');
+        return;
+      }
+
+      try {
+        let applicationNumber = formData.applicationNumber;
+
+        if (!editingRecordId && !applicationNumber) {
+          // New institution entry, generate new application number
+          applicationNumber = await generateApplicationNumberFromDB('institutions');
+        } else if (editingRecordId && applicationNumber) {
+          // Editing existing entry - delete old entries first
+          await deleteInstitutionBeneficiaryEntriesByApplicationNumber(applicationNumber);
+        }
+
+        if (!applicationNumber) {
+          showError('Failed to generate application number. Please try again.');
+          return;
+        }
+
+        // Create one entry per article
+        const entries = formData.selectedArticles.map((article) => ({
+          institution_name: formData.institutionName!,
+          institution_type: formData.institutionType!,
+          application_number: applicationNumber,
+          address: formData.address || null,
+          mobile: formData.mobile || null,
+          article_id: article.articleId,
+          quantity: article.quantity,
+          article_cost_per_unit: article.costPerUnit,
+          total_amount: article.totalValue,
+          notes: article.comments || null,
+          status: 'pending' as const,
+          created_by: user?.id || null,
+        }));
+
+        await createInstitutionBeneficiaryEntries(entries);
+
+        // Refresh records from database
+        try {
+          const dbRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
+          setRecords(dbRecords);
+        } catch (refreshError) {
+          console.error('Failed to refresh records after save:', refreshError);
+          // Continue anyway - the save was successful
+        }
+
+        resetForm();
+        setIsFormMode(false);
+        showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+        return;
+      } catch (error: any) {
+        console.error('Failed to save institution entry:', error);
+        showError(error.message || 'Failed to save institution entry. Please try again.');
+        return;
+      }
+    }
   };
 
   const handleExportClick = () => {
@@ -452,7 +742,48 @@ const MasterEntry: React.FC = () => {
 
       // Export Public
       if (exportTypes.public) {
-        const publicRecords = getRecordsByBeneficiaryType('public');
+        const { data: publicData, error: publicError } = await supabase
+          .from('public_beneficiary_entries')
+          .select(`
+            id,
+            application_number,
+            name,
+            aadhar_number,
+            is_handicapped,
+            address,
+            mobile,
+            article_id,
+            quantity,
+            total_amount,
+            notes,
+            status,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
+
+        if (publicError) {
+          showError('Failed to load public records for export.');
+          setExporting(false);
+          return;
+        }
+
+        const publicRecords: MasterEntryRecord[] = (publicData || []).map((entry: any) => ({
+          id: entry.id,
+          applicationNumber: entry.application_number || '',
+          beneficiaryType: 'public' as const,
+          createdAt: entry.created_at,
+          aadharNumber: entry.aadhar_number,
+          name: entry.name,
+          handicapped: entry.is_handicapped,
+          address: entry.address,
+          mobile: entry.mobile,
+          articleId: entry.article_id,
+          quantity: entry.quantity,
+          costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+          totalValue: entry.total_amount,
+          comments: entry.notes || '',
+        }));
+
         const exportData = publicRecords.map((record) => ({
           application_number: record.applicationNumber,
           name: record.name || '',
@@ -474,24 +805,38 @@ const MasterEntry: React.FC = () => {
             'total_amount',
             'status',
             'created_at',
-          ], undefined, showError);
+          ], showError);
           exportedTypes.push('public');
         }
       }
 
       // Export Institutions
       if (exportTypes.institutions) {
-        const institutionsRecords = getRecordsByBeneficiaryType('institutions');
-        const exportData = institutionsRecords.map((record) => ({
-          application_number: record.applicationNumber,
-          institution_name: record.institutionName || '',
-          institution_type: record.institutionType || '',
-          article_name: record.articleId ? articles.find(a => a.id === record.articleId)?.name || '' : '',
-          quantity: record.quantity || 0,
-          total_amount: record.totalValue || 0,
-          status: '',
-          created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
-        }));
+        const institutionsRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
+        const exportData = institutionsRecords.flatMap((record) => {
+          if (!record.selectedArticles || record.selectedArticles.length === 0) {
+            return [{
+              application_number: record.applicationNumber,
+              institution_name: record.institutionName || '',
+              institution_type: record.institutionType || '',
+              article_name: '',
+              quantity: 0,
+              total_amount: 0,
+              status: '',
+              created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+            }];
+          }
+          return record.selectedArticles.map((article) => ({
+            application_number: record.applicationNumber,
+            institution_name: record.institutionName || '',
+            institution_type: record.institutionType || '',
+            article_name: article.articleName,
+            quantity: article.quantity,
+            total_amount: article.totalValue,
+            status: '',
+            created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+          }));
+        });
 
         if (exportData.length > 0) {
           exportToCSV(exportData, 'master-entry-institutions', [
@@ -702,20 +1047,22 @@ const MasterEntry: React.FC = () => {
                 Allotted Fund
               </label>
               <p className="text-gray-900 dark:text-white">
-                Rs.{selectedDistrict.allottedBudget.toLocaleString('en-IN')}
+                {CURRENCY_SYMBOL}{selectedDistrict.allottedBudget.toLocaleString('en-IN')}
               </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Remaining Fund
               </label>
-              <p className={`text-gray-900 dark:text-white font-semibold ${
-                remainingFund < 0 ? 'text-red-600 dark:text-red-400' : ''
+              <p className={`font-semibold ${
+                remainingFund < 0 
+                  ? 'text-red-600 dark:text-red-400' 
+                  : 'text-green-600 dark:text-green-400'
               }`}>
                 {loadingExistingEntries ? (
                   <span className="text-sm">Calculating...</span>
                 ) : (
-                  `Rs.${remainingFund.toLocaleString('en-IN')}`
+                  `${CURRENCY_SYMBOL}${remainingFund.toLocaleString('en-IN')}`
                 )}
               </p>
               {remainingFund < 0 && (
@@ -741,13 +1088,37 @@ const MasterEntry: React.FC = () => {
           <p className="text-sm text-red-600 dark:text-red-400">{errors.selectedArticles}</p>
         )}
 
+        {/* Duplicate Articles Summary */}
+        {(() => {
+          const duplicateArticles = getDuplicateArticles(formData.selectedArticles || []);
+          return duplicateArticles.length > 0 && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                    Multiple entry article:
+                  </p>
+                  <ul className="text-xs text-blue-800 dark:text-blue-300 list-disc list-inside">
+                    {duplicateArticles.map((dup, idx) => (
+                      <li key={idx}>
+                        {dup.name} (added {dup.count} times)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="flex items-end gap-4">
           <div className="w-full max-w-xs">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Total Accrued
             </label>
             <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-semibold text-base">
-              Rs.{calculateTotalAccrued().toLocaleString('en-IN')}
+              {CURRENCY_SYMBOL}{calculateTotalAccrued().toLocaleString('en-IN')}
             </div>
           </div>
         </div>
@@ -894,7 +1265,7 @@ const MasterEntry: React.FC = () => {
             <option value="">{loadingArticles ? 'Loading articles...' : 'Select Article'}</option>
             {articles.map((article) => (
               <option key={article.id} value={article.id}>
-                {article.name} (Rs.{article.costPerUnit.toLocaleString('en-IN')})
+                {article.name} ({CURRENCY_SYMBOL}{article.costPerUnit.toLocaleString('en-IN')})
               </option>
             ))}
           </select>
@@ -955,7 +1326,7 @@ const MasterEntry: React.FC = () => {
             Total Value
           </label>
           <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-medium">
-            Rs.{totalValue.toLocaleString('en-IN')}
+            {CURRENCY_SYMBOL}{totalValue.toLocaleString('en-IN')}
           </div>
         </div>
 
@@ -977,7 +1348,7 @@ const MasterEntry: React.FC = () => {
               Total Accrued
             </label>
             <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-semibold text-base">
-              Rs.{totalValue.toLocaleString('en-IN')}
+              {CURRENCY_SYMBOL}{totalValue.toLocaleString('en-IN')}
             </div>
           </div>
         </div>
@@ -1097,13 +1468,37 @@ const MasterEntry: React.FC = () => {
           </>
         )}
 
+        {/* Duplicate Articles Summary */}
+        {(() => {
+          const duplicateArticles = getDuplicateArticles(formData.selectedArticles || []);
+          return duplicateArticles.length > 0 && (
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <div className="flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
+                    Multiple entry article:
+                  </p>
+                  <ul className="text-xs text-blue-800 dark:text-blue-300 list-disc list-inside">
+                    {duplicateArticles.map((dup, idx) => (
+                      <li key={idx}>
+                        {dup.name} (added {dup.count} times)
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="flex items-end gap-4">
           <div className="w-full max-w-xs">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Total Accrued
             </label>
             <div className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-semibold text-base">
-              Rs.{calculateTotalAccrued().toLocaleString('en-IN')}
+              {CURRENCY_SYMBOL}{calculateTotalAccrued().toLocaleString('en-IN')}
             </div>
           </div>
         </div>
@@ -1210,12 +1605,18 @@ const MasterEntry: React.FC = () => {
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {records.map((record) => (
-              <tr
-                key={record.id}
-                className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                {beneficiaryTypeFilter === 'district' && (
+            {records.map((record) => {
+              const isExpanded = expandedRows.has(record.id);
+              const canExpand = (beneficiaryTypeFilter === 'district' || beneficiaryTypeFilter === 'institutions') && 
+                                record.selectedArticles && record.selectedArticles.length > 0;
+              
+              return (
+                <React.Fragment key={record.id}>
+                  <tr
+                    className={`hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${canExpand ? 'cursor-pointer' : ''}`}
+                    onClick={() => canExpand && toggleRowExpansion(record.id)}
+                  >
+                    {beneficiaryTypeFilter === 'district' && (
                   <>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
                       {record.applicationNumber}
@@ -1227,7 +1628,7 @@ const MasterEntry: React.FC = () => {
                       {record.selectedArticles?.length || 0} article(s)
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                      Rs.{(record.totalAccrued || 0).toLocaleString('en-IN')}
+                      {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                       {(() => {
@@ -1246,8 +1647,10 @@ const MasterEntry: React.FC = () => {
                         const remaining = district.allottedBudget - totalUsed;
                         
                         return (
-                          <span className={remaining < 0 ? 'text-red-600 dark:text-red-400' : ''}>
-                            Rs.{remaining.toLocaleString('en-IN')}
+                          <span className={remaining < 0 
+                            ? 'text-red-600 dark:text-red-400' 
+                            : 'text-green-600 dark:text-green-400'}>
+                            {CURRENCY_SYMBOL}{remaining.toLocaleString('en-IN')}
                           </span>
                         );
                       })()}
@@ -1292,7 +1695,7 @@ const MasterEntry: React.FC = () => {
                       {getArticleById(record.articleId || '')?.name || '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                      Rs.{(record.totalValue || 0).toLocaleString('en-IN')}
+                      {CURRENCY_SYMBOL}{(record.totalValue || 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {new Date(record.createdAt).toLocaleDateString()}
@@ -1337,12 +1740,12 @@ const MasterEntry: React.FC = () => {
                       {record.selectedArticles?.length || 0} article(s)
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                      Rs.{(record.totalAccrued || 0).toLocaleString('en-IN')}
+                      {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                       {new Date(record.createdAt).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
@@ -1367,8 +1770,54 @@ const MasterEntry: React.FC = () => {
                     </td>
                   </>
                 )}
-              </tr>
-            ))}
+                  </tr>
+                  {/* Expanded row for district and institutions */}
+                  {isExpanded && canExpand && (
+                    <tr>
+                      <td 
+                        colSpan={beneficiaryTypeFilter === 'district' ? 6 : 7} 
+                        className="px-4 py-4 bg-gray-50 dark:bg-gray-800"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                            Articles
+                          </h4>
+                          {record.selectedArticles && record.selectedArticles.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Article Name</th>
+                                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 dark:text-gray-400">Quantity</th>
+                                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Cost/Unit</th>
+                                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Total Value</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Comments</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {record.selectedArticles.map((article, idx) => (
+                                    <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
+                                      <td className="px-3 py-2 text-gray-900 dark:text-white">{article.articleName}</td>
+                                      <td className="px-3 py-2 text-center text-gray-900 dark:text-white">{article.quantity}</td>
+                                      <td className="px-3 py-2 text-right text-gray-900 dark:text-white">{CURRENCY_SYMBOL}{article.costPerUnit.toLocaleString('en-IN')}</td>
+                                      <td className="px-3 py-2 text-right text-gray-900 dark:text-white font-medium">{CURRENCY_SYMBOL}{article.totalValue.toLocaleString('en-IN')}</td>
+                                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{article.comments || '-'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 dark:text-gray-400">No articles found.</p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

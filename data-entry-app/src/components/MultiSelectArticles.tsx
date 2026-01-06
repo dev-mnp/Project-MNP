@@ -3,6 +3,8 @@ import { Search, X, ChevronDown } from 'lucide-react';
 import { Article, ArticleSelection } from '../data/mockData';
 import ArticleRow from './ArticleRow';
 import { getCustomCostsForDistrict } from '../services/districtBeneficiaryService';
+import { useNotifications } from '../contexts/NotificationContext';
+import { CURRENCY_SYMBOL } from '../constants/currency';
 
 interface MultiSelectArticlesProps {
   articles: Article[];
@@ -21,6 +23,7 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
   required = false,
   districtId,
 }) => {
+  const { showWarning } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [customCosts, setCustomCosts] = useState<Map<string, number>>(new Map());
@@ -101,6 +104,17 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
   const availableArticles = filteredArticles;
 
   const handleArticleSelect = async (article: Article) => {
+    // Check if article already exists in selected articles
+    const existingArticle = selectedArticles.find(
+      a => a.articleId === article.id
+    );
+    
+    // If article exists and has cost > 0, prevent duplicate
+    if (existingArticle && article.costPerUnit > 0) {
+      showWarning(`${article.name} is already selected. Articles with cost cannot be added multiple times.`);
+      return; // Prevent adding duplicate
+    }
+    
     let costPerUnit = article.costPerUnit;
     
     // If district is selected and article has original cost = 0, check for custom cost
@@ -212,7 +226,7 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
                             {article.name}
                           </span>
                           <span className="text-xs text-gray-500 dark:text-gray-400">
-                            ₹{article.costPerUnit.toLocaleString('en-IN')}
+                            {CURRENCY_SYMBOL}{article.costPerUnit.toLocaleString('en-IN')}
                           </span>
                         </div>
                         {article.category && (

@@ -11,6 +11,7 @@ import { exportToCSV } from '../utils/csvExport';
 import { logAction } from '../services/auditLogService';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { CURRENCY_SYMBOL } from '../constants/currency';
 
 const ArticleManagement: React.FC = () => {
   const { user } = useAuth();
@@ -532,7 +533,7 @@ const ArticleManagement: React.FC = () => {
                           {article.article_name}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                          ₹{article.cost_per_unit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {CURRENCY_SYMBOL}{article.cost_per_unit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                           {article.item_type}

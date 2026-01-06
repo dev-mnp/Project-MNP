@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Plus, Minus } from 'lucide-react';
 import type { ArticleSelection } from '../data/mockData';
-
+import { CURRENCY_SYMBOL } from '../constants/currency';
 interface ArticleRowProps {
   article: ArticleSelection;
   onUpdate: (updatedArticle: ArticleSelection) => void;
@@ -127,7 +127,7 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
             />
           ) : (
             <div className="w-20 md:w-24 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-xs md:text-sm text-right">
-              ₹{article.costPerUnit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {CURRENCY_SYMBOL}{article.costPerUnit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           )}
         </div>
@@ -138,7 +138,7 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
             Total:
           </label>
           <div className="w-24 md:w-28 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-medium text-xs md:text-sm text-right">
-            ₹{article.totalValue.toLocaleString('en-IN')}
+            {CURRENCY_SYMBOL}{article.totalValue.toLocaleString('en-IN')}
           </div>
         </div>
 
