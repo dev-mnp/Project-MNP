@@ -1,4 +1,4 @@
-import { UserRole } from '../lib/supabase';
+import type { UserRole } from '../lib/supabase';
 
 // Role definitions
 export const ROLES = {

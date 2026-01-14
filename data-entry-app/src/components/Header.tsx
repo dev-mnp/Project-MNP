@@ -18,8 +18,6 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
   const toggleTheme = () => {
     if (theme === 'light') {
       setTheme('dark');
-    } else if (theme === 'dark') {
-      setTheme('auto');
     } else {
       setTheme('light');
     }

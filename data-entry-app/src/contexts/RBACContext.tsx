@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useAuth } from './AuthContext';
-import { UserRole } from '../lib/supabase';
+import type { UserRole } from '../lib/supabase';
 import { ROLE_PERMISSIONS, ROLES, hasPermission as checkPermission, canDelete, canWrite, isReadOnly } from '../constants/roles';
 
 interface RBACContextType {

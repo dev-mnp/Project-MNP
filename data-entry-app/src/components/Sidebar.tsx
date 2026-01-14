@@ -16,7 +16,6 @@ import {
   Users,
   ClipboardList,
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 import { useRBAC } from '../contexts/RBACContext';
 
 interface SidebarProps {
@@ -25,14 +24,12 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ 
-  isMobileOpen = false,
+  isMobileOpen: _isMobileOpen = false,
   onMobileClose 
 }) => {
   const location = useLocation();
-  const { user, logout } = useAuth();
-  const { isAdmin, isEditor, hasPermission } = useRBAC();
+  const { isAdmin, hasPermission } = useRBAC();
   const [collapsed, setCollapsed] = useState(false);
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
   const handleMenuItemClick = () => {
     if (onMobileClose && window.innerWidth < 768) {

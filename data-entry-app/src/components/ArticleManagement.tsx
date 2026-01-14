@@ -5,8 +5,8 @@ import {
   createArticle,
   updateArticle,
   toggleArticleStatus,
-  ArticleRecord,
 } from '../services/articlesService';
+import type { ArticleRecord } from '../services/articlesService';
 import { exportToCSV } from '../utils/csvExport';
 import { logAction } from '../services/auditLogService';
 import { useAuth } from '../contexts/AuthContext';

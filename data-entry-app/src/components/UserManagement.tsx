@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, X, Save, Loader2, AlertCircle, Eye, EyeOff, Download } from 'lucide-react';
 import { useRBAC } from '../contexts/RBACContext';
-import { AppUser, CreateUserData, UpdateUserData, fetchAllUsers, createUser, updateUser, deleteUser } from '../services/userService';
-import { UserRole } from '../lib/supabase';
+import { fetchAllUsers, createUser, updateUser, deleteUser } from '../services/userService';
+import type { AppUser, CreateUserData, UpdateUserData } from '../services/userService';
+import type { UserRole } from '../lib/supabase';
 import { exportToCSV } from '../utils/csvExport';
 import { logAction } from '../services/auditLogService';
 import { useAuth } from '../contexts/AuthContext';

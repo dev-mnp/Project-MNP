@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, X, ChevronDown } from 'lucide-react';
-import { Article, ArticleSelection } from '../data/mockData';
+import type { Article, ArticleSelection } from '../data/mockData';
 import ArticleRow from './ArticleRow';
 import { getCustomCostsForDistrict } from '../services/districtBeneficiaryService';
 import { useNotifications } from '../contexts/NotificationContext';

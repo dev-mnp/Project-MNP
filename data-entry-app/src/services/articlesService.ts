@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { Article } from '../data/mockData';
+import type { Article } from '../data/mockData';
 import { logAction } from './auditLogService';
 
 export interface ArticleRecord {

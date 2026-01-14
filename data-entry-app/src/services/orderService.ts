@@ -159,7 +159,7 @@ export const deleteOrderEntry = async (id: string): Promise<void> => {
     // Get entry details before deletion for audit log
     const { data: entryData } = await supabase
       .from('order_entries')
-      .select('article_id, quantity_ordered, status')
+      .select('article_id, quantity_ordered, status, order_date, total_amount, supplier_name, supplier_contact')
       .eq('id', id)
       .single();
 

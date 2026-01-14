@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { UserRole } from '../lib/supabase';
+import type { UserRole } from '../lib/supabase';
 import { logAction } from './auditLogService';
 
 export interface AppUser {
@@ -279,7 +279,7 @@ export const deleteUser = async (userId: string): Promise<void> => {
  * Note: This requires admin privileges. For simple setup, users should reset their own passwords
  * via the forgot password flow in Supabase Auth
  */
-export const resetUserPassword = async (userId: string, newPassword: string): Promise<void> => {
+export const resetUserPassword = async (_userId: string, _newPassword: string): Promise<void> => {
   try {
     // This requires admin privileges which we don't have in client-side code
     // For a simple system, users should use the password reset flow

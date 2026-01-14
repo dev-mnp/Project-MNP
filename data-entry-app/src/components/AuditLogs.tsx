@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Download, Filter, X, Loader2 } from 'lucide-react';
+import { FileText, Download, Filter, Loader2 } from 'lucide-react';
 import { useRBAC } from '../contexts/RBACContext';
 import {
   fetchAuditLogs,

@@ -51,12 +51,11 @@ export interface AuditLogDetails {
   entity_name?: string; // Human-readable name of the entity (e.g., article name, user email)
   entity_summary?: string; // Brief summary of the entity
   
-  // For CREATE actions
-  new_values?: Record<string, any>; // All values of the newly created entity
+  // For CREATE and UPDATE actions
+  new_values?: Record<string, any>; // All values of the newly created/updated entity
   
   // For UPDATE actions
   old_values?: Record<string, any>; // Previous values before update
-  new_values?: Record<string, any>; // New values after update
   updated_fields?: string[]; // List of field names that were updated
   
   // For DELETE actions

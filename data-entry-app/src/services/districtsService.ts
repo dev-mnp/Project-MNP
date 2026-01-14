@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { District } from '../data/mockData';
+import type { District } from '../data/mockData';
 
 /**
  * Fetch all active districts from the database

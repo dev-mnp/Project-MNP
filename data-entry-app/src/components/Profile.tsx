@@ -6,7 +6,6 @@ import { logAction } from '../services/auditLogService';
 
 const Profile: React.FC = () => {
   const { user, updateUser: updateAuthUser } = useAuth();
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);

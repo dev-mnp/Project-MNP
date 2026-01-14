@@ -5,7 +5,7 @@ import { LayoutDashboard, FileText, Package, BarChart3 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
-  const { isAdmin, isEditor, isViewer, canWrite, canDelete } = useRBAC();
+  const { isAdmin, isEditor, isViewer, canWrite, canDelete: _canDelete } = useRBAC();
 
   const stats = [
     {

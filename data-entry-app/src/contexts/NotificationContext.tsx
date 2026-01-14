@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { NotificationContainer, Notification, useNotification } from '../components/Notification';
+import React, { createContext, useContext } from 'react';
+import { NotificationContainer, useNotification } from '../components/Notification';
 
 interface NotificationContextType {
   showNotification: (message: string, type?: 'success' | 'error' | 'info' | 'warning', duration?: number) => void;
