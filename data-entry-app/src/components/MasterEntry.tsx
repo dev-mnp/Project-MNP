@@ -1193,7 +1193,7 @@ const MasterEntry: React.FC = () => {
                   <ul className="text-xs text-blue-800 dark:text-blue-300 list-disc list-inside">
                     {duplicateArticles.map((dup, idx) => (
                       <li key={idx}>
-                        {dup.name} (added {dup.count} times)
+                        {dup.name} (added {dup.count} times) : Advisable to Split as Single Quantity and add Comments for such entries
                       </li>
                     ))}
                   </ul>
