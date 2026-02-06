@@ -92,7 +92,7 @@
 13. Need to add Blind Laptop as a new article
 14. if i rename  laptop to blind laptop at last moment, although its been orderd and fund raised, how does it reflect?
 15. in public validation - add a column comments to check why they are rejected as well.
-
+16. Add a timestamp at footer for last app modification time and last data enty time in portal.
 
 # Module to Work Next:
 
