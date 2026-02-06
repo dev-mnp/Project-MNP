@@ -5,7 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { logAction } from '../services/auditLogService';
 import logo from '../assets/logo.webp';
-import loginBg from '../assets/logo_lg.png';
 
 interface LoginProps {
   onLogin?: (email: string, password: string) => Promise<void>;
@@ -126,16 +125,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       </header>
 
       <div className="login-content flex-1">
-        <div className="login-left" style={{ backgroundImage: `url(${loginBg})` }} />
-        <div className="login-right">
+        <div className="login-center">
           <div className="w-full max-w-md">
             <div className="text-center mb-4">
               <h2 className="text-2xl font-bold" style={{ color: '#222222' }}>
-                MNP Portal
+                Admin Portal
               </h2>
-              <p className="text-sm" style={{ color: '#444444' }}>
-                Login
-              </p>
             </div>
             <div
               className="rounded-2xl shadow-2xl p-8 border"
