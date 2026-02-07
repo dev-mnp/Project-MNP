@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Loader2, AlertCircle, Home, Info } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { logAction } from '../services/auditLogService';
+import logo from '../assets/logo.webp';
 
 interface LoginProps {
   onLogin?: (email: string, password: string) => Promise<void>;
@@ -19,6 +20,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     email: '',
     password: '',
   });
+  const [showForgotPopup, setShowForgotPopup] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,30 +90,66 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 bg-grid-pattern opacity-5"></div>
-      
-      <div className="relative w-full max-w-md">
-        {/* Logo/Title */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Data Entry & Inventory
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">Sign in to your account</p>
-        </div>
+    <div className="login-page min-h-screen flex flex-col relative">
 
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 border border-gray-100 dark:border-gray-700">
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center space-x-2">
-              <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0" />
-              <span className="text-red-700 dark:text-red-300 text-sm">{error}</span>
+      {/* Top Header Bar */}
+      <header className="main-header relative z-10 w-full">
+        <div className="container header-bar">
+          <div className="brand">
+            <img src={logo} alt="Makkal Nalapani" />
+            <div className="brand-text">
+              <span className="brand-title">Makkal Nalapani</span>
+              <span className="brand-subtitle">Melmaruvathur</span>
             </div>
-          )}
+          </div>
+
+          <div className="header-right">
+            <nav className="nav-pills">
+            <a
+              href="https://omsakthi.co.in"
+              className="nav-pill-item"
+            >
+              <Home className="w-4 h-4" />
+              Home
+            </a>
+            <a
+              href="https://omsakthi.co.in/about"
+              className="nav-pill-item"
+            >
+              <Info className="w-4 h-4" />
+              About
+            </a>
+            </nav>
+          </div>
+        </div>
+      </header>
+
+      <div className="login-content flex-1">
+        <div className="login-center">
+          <div className="w-full max-w-md">
+            <div className="text-center mb-4">
+              <h2 className="text-2xl font-bold" style={{ color: '#222222' }}>
+                Admin Portal
+              </h2>
+            </div>
+            <div
+              className="rounded-2xl shadow-2xl p-8 border"
+              style={{
+                backgroundColor: '#ffffff',
+                borderColor: '#e2e2e2',
+                boxShadow: '0 20px 45px rgba(0, 0, 0, 0.18)',
+              }}
+            >
+              {error && (
+                <div className="mb-6 p-4 rounded-lg flex items-center space-x-2" style={{ backgroundColor: '#fff3c4', border: '1px solid #f4b400' }}>
+                  <AlertCircle className="w-5 h-5 flex-shrink-0" style={{ color: '#99271A' }} />
+                  <span className="text-sm" style={{ color: '#99271A' }}>{error}</span>
+                </div>
+              )}
 
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: '#444444' }}>
                 Email
               </label>
               <input
@@ -119,13 +157,17 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 required
                 value={loginData.email}
                 onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                className="w-full px-4 py-3 rounded-lg transition-colors bg-white text-gray-900"
+                style={{
+                  border: '1px solid #d7d7d7',
+                  boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)',
+                }}
                 placeholder="Enter your email"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: '#444444' }}>
                 Password
               </label>
               <div className="relative">
@@ -134,13 +176,18 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   required
                   value={loginData.password}
                   onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                  className="w-full px-4 py-3 pr-11 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full px-4 py-3 pr-11 rounded-lg transition-colors bg-white text-gray-900"
+                  style={{
+                    border: '1px solid #d7d7d7',
+                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.06)',
+                  }}
                   placeholder="Enter your password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2"
+                  style={{ color: '#666666' }}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -150,21 +197,66 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              className="w-full py-3 px-4 rounded-full transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              style={{
+                backgroundColor: '#99271A',
+                color: '#ffffff',
+              }}
             >
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Signing in...</span>
+                  <span>Logging in...</span>
                 </>
               ) : (
-                <span>Sign In</span>
+                <span>Login</span>
               )}
             </button>
 
-          </form>
+              </form>
+              <div className="mt-6 text-center text-sm">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPopup(true)}
+                  className="underline"
+                  style={{ color: '#99271A' }}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+
+      {showForgotPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0"
+            style={{ background: 'rgba(0, 0, 0, 0.4)' }}
+            onClick={() => setShowForgotPopup(false)}
+          ></div>
+          <div
+            className="relative z-10 w-full max-w-sm rounded-xl border p-6 text-center"
+            style={{ backgroundColor: '#ffffff', borderColor: '#e2e2e2' }}
+          >
+            <h3 className="text-lg font-semibold mb-2" style={{ color: '#222222' }}>
+              Forgot Password
+            </h3>
+            <p className="text-sm mb-4" style={{ color: '#444444' }}>
+              Please contact the developer to reset your password.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowForgotPopup(false)}
+              className="px-4 py-2 rounded-full font-semibold"
+              style={{ backgroundColor: '#f4b400', color: '#222222' }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
