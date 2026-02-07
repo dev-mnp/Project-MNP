@@ -62,9 +62,12 @@ const MasterEntry: React.FC = () => {
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
-    message: string;
+    message: string | React.ReactNode;
     onConfirm: () => void;
+    onSecondary?: () => void;
     type?: 'danger' | 'warning' | 'info';
+    confirmText?: string;
+    secondaryText?: string;
   }>({
     isOpen: false,
     title: '',
@@ -84,6 +87,9 @@ const MasterEntry: React.FC = () => {
   const [isVerifyingAadhar, setIsVerifyingAadhar] = useState(false);
   const [isAadharVerified, setIsAadharVerified] = useState(false);
   const [matchedHistoryRecords, setMatchedHistoryRecords] = useState<any[]>([]);
+
+  // Save loading state
+  const [isSaving, setSaving] = useState(false);
 
   // Fetch articles from database on component mount
   useEffect(() => {
@@ -229,12 +235,31 @@ const MasterEntry: React.FC = () => {
 
   // Reset form
   const resetForm = () => {
-    setFormData({ beneficiaryType: beneficiaryTypeFilter });
+    const defaultFormData: Partial<MasterEntryRecord> = { beneficiaryType: beneficiaryTypeFilter };
+    // Set default quantity to 1 for public type
+    if (beneficiaryTypeFilter === 'public') {
+      defaultFormData.quantity = 1;
+    }
+    setFormData(defaultFormData);
     setErrors({});
     setEditingRecordId(null);
     setIsAadharVerified(false);
     setMatchedHistoryRecords([]);
   };
+
+  // Initialize quantity to 1 when switching to public form mode
+  useEffect(() => {
+    if (isFormMode && beneficiaryTypeFilter === 'public' && !editingRecordId && (formData.quantity === undefined || formData.quantity === 0)) {
+      setFormData(prev => ({ ...prev, quantity: 1 }));
+    }
+  }, [isFormMode, beneficiaryTypeFilter, editingRecordId]);
+
+  // Initialize quantity to 1 when switching to public form mode
+  useEffect(() => {
+    if (isFormMode && beneficiaryTypeFilter === 'public' && !editingRecordId && formData.quantity === undefined) {
+      setFormData(prev => ({ ...prev, quantity: 1 }));
+    }
+  }, [isFormMode, beneficiaryTypeFilter, editingRecordId]);
 
   // Handle Add button click
   const handleAdd = () => {
@@ -255,14 +280,14 @@ const MasterEntry: React.FC = () => {
     setIsFormMode(true);
   };
 
-  // Toggle row expansion
+  // Toggle row expansion - only one row can be expanded at a time
   const toggleRowExpansion = (recordId: string) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(recordId)) {
-      newExpanded.delete(recordId);
-    } else {
+    const newExpanded = new Set<string>();
+    if (!expandedRows.has(recordId)) {
+      // Only expand the clicked row
       newExpanded.add(recordId);
     }
+    // If clicking the same row, newExpanded will be empty (collapses)
     setExpandedRows(newExpanded);
   };
 
@@ -397,6 +422,12 @@ const MasterEntry: React.FC = () => {
       }
       if (!formData.selectedArticles || formData.selectedArticles.length === 0) {
         newErrors.selectedArticles = 'At least one article is required';
+      } else {
+        // Check if any article has cost 0
+        const hasZeroCost = formData.selectedArticles.some(article => article.costPerUnit <= 0);
+        if (hasZeroCost) {
+          newErrors.selectedArticles = 'All articles must have a cost greater than 0';
+        }
       }
     } else if (formData.beneficiaryType === 'public') {
       if (!formData.aadharNumber || formData.aadharNumber.length !== 12) {
@@ -411,8 +442,13 @@ const MasterEntry: React.FC = () => {
       if (!formData.articleId) {
         newErrors.articleId = 'Article is required';
       }
-      if (!formData.quantity || formData.quantity <= 0) {
+      // Check quantity - use 1 as default if not set
+      const quantity = formData.quantity || 1;
+      if (quantity <= 0) {
         newErrors.quantity = 'Valid quantity is required';
+      }
+      if (formData.costPerUnit !== undefined && formData.costPerUnit <= 0) {
+        newErrors.costPerUnit = 'Cost per unit must be greater than 0';
       }
     } else if (formData.beneficiaryType === 'institutions') {
       if (!formData.institutionName) {
@@ -423,6 +459,12 @@ const MasterEntry: React.FC = () => {
       }
       if (!formData.selectedArticles || formData.selectedArticles.length === 0) {
         newErrors.selectedArticles = 'At least one article is required';
+      } else {
+        // Check if any article has cost 0
+        const hasZeroCost = formData.selectedArticles.some(article => article.costPerUnit <= 0);
+        if (hasZeroCost) {
+          newErrors.selectedArticles = 'All articles must have a cost greater than 0';
+        }
       }
     }
 
@@ -448,6 +490,69 @@ const MasterEntry: React.FC = () => {
   // Normalize Aadhar number (remove spaces and special characters)
   const normalizeAadharNumber = (aadhar: string): string => {
     return aadhar.replace(/\D/g, '');
+  };
+
+  // Find existing aadhar entry in current public_beneficiary_entries table
+  const findExistingAadharEntry = async (aadharNumber: string, excludeId?: string): Promise<MasterEntryRecord | null> => {
+    const normalizedAadhar = normalizeAadharNumber(aadharNumber);
+    
+    let query = supabase
+      .from('public_beneficiary_entries')
+      .select(`
+        id,
+        application_number,
+        name,
+        aadhar_number,
+        is_handicapped,
+        address,
+        mobile,
+        article_id,
+        quantity,
+        total_amount,
+        notes,
+        status,
+        created_at
+      `);
+    
+    // Exclude current record if editing
+    if (excludeId) {
+      query = query.neq('id', excludeId);
+    }
+    
+    const { data, error } = await query;
+    
+    if (error) {
+      console.error('Error checking aadhar:', error);
+      return null;
+    }
+    
+    // Find record with matching normalized aadhar
+    const existingRecord = (data || []).find(record => {
+      const recordAadhar = normalizeAadharNumber(record.aadhar_number || '');
+      return recordAadhar === normalizedAadhar;
+    });
+    
+    if (!existingRecord) {
+      return null;
+    }
+    
+    // Transform to MasterEntryRecord format
+    return {
+      id: existingRecord.id,
+      applicationNumber: existingRecord.application_number || '',
+      beneficiaryType: 'public' as const,
+      createdAt: existingRecord.created_at,
+      aadharNumber: existingRecord.aadhar_number,
+      name: existingRecord.name,
+      handicapped: existingRecord.is_handicapped,
+      address: existingRecord.address,
+      mobile: existingRecord.mobile,
+      articleId: existingRecord.article_id,
+      quantity: existingRecord.quantity,
+      costPerUnit: existingRecord.quantity > 0 ? (existingRecord.total_amount / existingRecord.quantity) : 0,
+      totalValue: existingRecord.total_amount,
+      comments: existingRecord.notes || '',
+    };
   };
 
   // Handle Aadhar verification
@@ -500,17 +605,15 @@ const MasterEntry: React.FC = () => {
   };
 
   // Handle save for public entry (extracted for reuse)
-  const handleSavePublicEntry = async () => {
+  const handleSavePublicEntry = async (recordIdToUpdate?: string) => {
     const costPerUnit = formData.costPerUnit || 0;
-    const quantity = formData.quantity || 0;
+    const quantity = formData.quantity || 1;
     const totalValue = costPerUnit * quantity;
+    const updateRecordId = recordIdToUpdate || editingRecordId;
 
     try {
-      // Generate application number
-      const applicationNumber = await generateApplicationNumberFromDB('public');
-
-      if (editingRecordId) {
-        // Update existing record
+      if (updateRecordId) {
+        // Update existing record - use existing application number
         const { error } = await supabase
           .from('public_beneficiary_entries')
           .update({
@@ -526,11 +629,12 @@ const MasterEntry: React.FC = () => {
             notes: formData.comments || null,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', editingRecordId);
+          .eq('id', updateRecordId);
 
         if (error) throw error;
       } else {
-        // Create new record
+        // Create new record - generate new application number
+        const applicationNumber = await generateApplicationNumberFromDB('public');
         const { error } = await supabase
           .from('public_beneficiary_entries')
           .insert({
@@ -606,6 +710,12 @@ const MasterEntry: React.FC = () => {
       return;
     }
 
+    if (isSaving) {
+      return; // Prevent multiple clicks
+    }
+
+    setSaving(true);
+
     // const totalAccrued = calculateTotalAccrued();
     // const now = new Date().toISOString();
 
@@ -665,10 +775,12 @@ const MasterEntry: React.FC = () => {
 
         resetForm();
         setIsFormMode(false);
+        setSaving(false);
         return;
       } catch (error: any) {
         console.error('Failed to save district entry:', error);
         showError(error.message || 'Failed to save district entry. Please try again.');
+        setSaving(false);
         return;
       }
     }
@@ -678,6 +790,255 @@ const MasterEntry: React.FC = () => {
       // Check if Aadhar has been verified
       if (!isAadharVerified) {
         showError('Please verify the Aadhar number before saving.');
+        setSaving(false);
+        return;
+      }
+
+      // Check for duplicate aadhar in current entries
+      const existingEntry = await findExistingAadharEntry(
+        formData.aadharNumber || '',
+        editingRecordId || undefined
+      );
+
+      if (existingEntry) {
+        // Show confirmation dialog with side-by-side comparison
+        const existingArticleName = getArticleById(existingEntry.articleId || '')?.name || 'Unknown';
+        const newArticleName = getArticleById(formData.articleId || '')?.name || 'Unknown';
+        const newQuantity = formData.quantity || 1;
+        const newCostPerUnit = formData.costPerUnit ?? (formData.articleId ? getArticleById(formData.articleId)?.costPerUnit : 0) ?? 0;
+        const newTotalValue = newCostPerUnit * newQuantity;
+        
+        const comparisonDetails = (
+          <div className="space-y-4">
+            <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+              This Aadhar number already exists in the current entries. Compare the records below:
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Existing Record */}
+              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border-2 border-blue-200 dark:border-blue-800">
+                <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-blue-600 rounded-full"></span>
+                  Existing Record
+                </h4>
+                <div className="grid grid-cols-1 gap-2 text-sm">
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Application Number:</span>
+                    <span className="text-gray-900 dark:text-white">{existingEntry.applicationNumber}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Name:</span>
+                    <span className="text-gray-900 dark:text-white">{existingEntry.name}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Aadhar:</span>
+                    <span className="text-gray-900 dark:text-white">{existingEntry.aadharNumber}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Article:</span>
+                    <span className="text-gray-900 dark:text-white">{existingArticleName}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Quantity:</span>
+                    <span className="text-gray-900 dark:text-white">{existingEntry.quantity}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Cost Per Unit:</span>
+                    <span className="text-gray-900 dark:text-white">
+                      {CURRENCY_SYMBOL}{(existingEntry.costPerUnit || 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Total Amount:</span>
+                    <span className="text-gray-900 dark:text-white font-semibold">
+                      {CURRENCY_SYMBOL}{(existingEntry.totalValue || 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  {existingEntry.address && (
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Address:</span>
+                      <span className="text-gray-900 dark:text-white">{existingEntry.address}</span>
+                    </div>
+                  )}
+                  {existingEntry.mobile && (
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Mobile:</span>
+                      <span className="text-gray-900 dark:text-white">{existingEntry.mobile}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* New Record */}
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 border-2 border-yellow-200 dark:border-yellow-800">
+                <h4 className="text-sm font-semibold text-yellow-900 dark:text-yellow-100 mb-3 flex items-center gap-2">
+                  <span className="w-2 h-2 bg-yellow-600 rounded-full"></span>
+                  New Record (You're Entering)
+                </h4>
+                <div className="grid grid-cols-1 gap-2 text-sm">
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Application Number:</span>
+                    <span className="text-gray-900 dark:text-white">-</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Name:</span>
+                    <span className="text-gray-900 dark:text-white">{formData.name || '-'}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Aadhar:</span>
+                    <span className="text-gray-900 dark:text-white">{formData.aadharNumber || '-'}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Article:</span>
+                    <span className="text-gray-900 dark:text-white">{newArticleName}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Quantity:</span>
+                    <span className="text-gray-900 dark:text-white">{newQuantity}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Cost Per Unit:</span>
+                    <span className="text-gray-900 dark:text-white">
+                      {CURRENCY_SYMBOL}{newCostPerUnit.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Total Amount:</span>
+                    <span className="text-gray-900 dark:text-white font-semibold">
+                      {CURRENCY_SYMBOL}{newTotalValue.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  {formData.address && (
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Address:</span>
+                      <span className="text-gray-900 dark:text-white">{formData.address}</span>
+                    </div>
+                  )}
+                  {formData.mobile && (
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-700 dark:text-gray-300 text-xs">Mobile:</span>
+                      <span className="text-gray-900 dark:text-white">{formData.mobile}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <p className="text-sm text-gray-700 dark:text-gray-300 mt-3">
+              Choose an option below to proceed.
+            </p>
+          </div>
+        );
+        
+        // Store current form data to use for update
+        const currentFormData = { ...formData };
+        
+        setConfirmDialog({
+          isOpen: true,
+          title: 'Aadhar Number Already Exists',
+          message: comparisonDetails,
+          type: 'warning',
+          confirmText: 'Update with New Values',
+          secondaryText: 'Edit Existing Record',
+          onConfirm: async () => {
+            setConfirmDialog({ ...confirmDialog, isOpen: false });
+            // Update existing record with new values directly
+            // Set formData with new values but keep existing application number and id
+            const updatedFormData = {
+              ...currentFormData,
+              id: existingEntry.id,
+              applicationNumber: existingEntry.applicationNumber,
+            };
+            setFormData(updatedFormData);
+            setEditingRecordId(existingEntry.id);
+            setIsAadharVerified(true);
+            setMatchedHistoryRecords([]);
+            // Now save with the new values - pass recordId directly to avoid async state issues
+            try {
+              // Use a temporary function that uses the updated formData
+              const costPerUnit = updatedFormData.costPerUnit || 0;
+              const quantity = updatedFormData.quantity || 1;
+              const totalValue = costPerUnit * quantity;
+
+              // Update existing record directly
+              const { error } = await supabase
+                .from('public_beneficiary_entries')
+                .update({
+                  application_number: existingEntry.applicationNumber,
+                  name: updatedFormData.name,
+                  aadhar_number: updatedFormData.aadharNumber,
+                  is_handicapped: updatedFormData.handicapped || false,
+                  address: updatedFormData.address,
+                  mobile: updatedFormData.mobile,
+                  article_id: updatedFormData.articleId,
+                  quantity: quantity,
+                  total_amount: totalValue,
+                  notes: updatedFormData.comments || null,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', existingEntry.id);
+
+              if (error) throw error;
+
+              // Refresh records from database
+              const { data, error: fetchError } = await supabase
+                .from('public_beneficiary_entries')
+                .select(`
+                  id,
+                  application_number,
+                  name,
+                  aadhar_number,
+                  is_handicapped,
+                  address,
+                  mobile,
+                  article_id,
+                  quantity,
+                  total_amount,
+                  notes,
+                  status,
+                  created_at
+                `)
+                .order('created_at', { ascending: false });
+
+              if (fetchError) throw fetchError;
+
+              const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
+                id: entry.id,
+                applicationNumber: entry.application_number || '',
+                beneficiaryType: 'public' as const,
+                createdAt: entry.created_at,
+                aadharNumber: entry.aadhar_number,
+                name: entry.name,
+                handicapped: entry.is_handicapped,
+                address: entry.address,
+                mobile: entry.mobile,
+                articleId: entry.article_id,
+                quantity: entry.quantity,
+                costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+                totalValue: entry.total_amount,
+                comments: entry.notes || '',
+              }));
+
+              setRecords(publicRecords);
+              resetForm();
+              setIsFormMode(false);
+              showSuccess('Entry updated successfully');
+            } catch (error: any) {
+              console.error('Failed to update public entry:', error);
+              showError(error.message || 'Failed to update entry. Please try again.');
+            } finally {
+              setSaving(false);
+            }
+          },
+          onSecondary: () => {
+            setConfirmDialog({ ...confirmDialog, isOpen: false });
+            // Load existing record into form for editing
+            setFormData(existingEntry);
+            setEditingRecordId(existingEntry.id);
+            setIsAadharVerified(true);
+            setMatchedHistoryRecords([]);
+            setSaving(false);
+          },
+        });
+        setSaving(false);
         return;
       }
 
@@ -695,14 +1056,23 @@ const MasterEntry: React.FC = () => {
           type: 'warning',
           onConfirm: async () => {
             setConfirmDialog({ ...confirmDialog, isOpen: false });
-            await handleSavePublicEntry();
+            try {
+              await handleSavePublicEntry();
+            } finally {
+              setSaving(false);
+            }
           },
         });
+        // Don't set saving to false here - it will be set in the onConfirm callback
         return;
       }
 
       // No matched records, proceed with save directly
-      await handleSavePublicEntry();
+      try {
+        await handleSavePublicEntry();
+      } finally {
+        setSaving(false);
+      }
       return;
     }
 
@@ -710,16 +1080,19 @@ const MasterEntry: React.FC = () => {
     if (formData.beneficiaryType === 'institutions') {
       if (!formData.selectedArticles || formData.selectedArticles.length === 0) {
         showError('Please select at least one article.');
+        setSaving(false);
         return;
       }
 
       if (!formData.institutionName) {
         showError('Institution name is required.');
+        setSaving(false);
         return;
       }
 
       if (!formData.institutionType) {
         showError('Institution type is required.');
+        setSaving(false);
         return;
       }
 
@@ -736,6 +1109,7 @@ const MasterEntry: React.FC = () => {
 
         if (!applicationNumber) {
           showError('Failed to generate application number. Please try again.');
+          setSaving(false);
           return;
         }
 
@@ -769,10 +1143,12 @@ const MasterEntry: React.FC = () => {
         resetForm();
         setIsFormMode(false);
         showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+        setSaving(false);
         return;
       } catch (error: any) {
         console.error('Failed to save institution entry:', error);
         showError(error.message || 'Failed to save institution entry. Please try again.');
+        setSaving(false);
         return;
       }
     }
@@ -1213,6 +1589,35 @@ const MasterEntry: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Save/Cancel Buttons */}
+        <div className="flex justify-end gap-3 pt-6 border-t border-gray-200 dark:border-gray-700 mt-6">
+          <button
+            onClick={handleCancel}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <X className="w-4 h-4" />
+            <span>Cancel</span>
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Save</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     );
   };
@@ -1221,7 +1626,7 @@ const MasterEntry: React.FC = () => {
   const renderPublicForm = () => {
     const selectedArticle = formData.articleId ? getArticleById(formData.articleId) : null;
     const costPerUnit = formData.costPerUnit ?? selectedArticle?.costPerUnit ?? 0;
-    const quantity = formData.quantity || 0;
+    const quantity = formData.quantity || 1;
     const totalValue = formData.totalValue ?? costPerUnit * quantity;
 
     return (
@@ -1450,10 +1855,21 @@ const MasterEntry: React.FC = () => {
             </label>
             <input
               type="number"
-              value={costPerUnit}
+              value={costPerUnit === 0 ? '' : costPerUnit}
               onChange={(e) => {
-                const value = parseFloat(e.target.value) || 0;
-                const newQuantity = formData.quantity || 0;
+                const inputValue = e.target.value;
+                // Allow empty string for clearing
+                if (inputValue === '') {
+                  setFormData({
+                    ...formData,
+                    costPerUnit: 0,
+                    totalValue: 0,
+                  });
+                  return;
+                }
+                // Remove leading zeros by parsing - parseFloat naturally removes leading zeros
+                const value = inputValue === '0' ? 0 : parseFloat(inputValue) || 0;
+                const newQuantity = formData.quantity || 1;
                 setFormData({
                   ...formData,
                   costPerUnit: value,
@@ -1463,6 +1879,9 @@ const MasterEntry: React.FC = () => {
               disabled={false}
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
             />
+            {errors.costPerUnit && (
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.costPerUnit}</p>
+            )}
           </div>
 
           <div>
@@ -1520,6 +1939,35 @@ const MasterEntry: React.FC = () => {
               {CURRENCY_SYMBOL}{totalValue.toLocaleString('en-IN')}
             </div>
           </div>
+        </div>
+
+        {/* Save/Cancel Buttons */}
+        <div className="flex justify-end gap-3 pt-6 border-t border-gray-200 dark:border-gray-700 mt-6">
+          <button
+            onClick={handleCancel}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <X className="w-4 h-4" />
+            <span>Cancel</span>
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Save</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
     );
@@ -1670,6 +2118,35 @@ const MasterEntry: React.FC = () => {
               {CURRENCY_SYMBOL}{calculateTotalAccrued().toLocaleString('en-IN')}
             </div>
           </div>
+        </div>
+
+        {/* Save/Cancel Buttons */}
+        <div className="flex justify-end gap-3 pt-6 border-t border-gray-200 dark:border-gray-700 mt-6">
+          <button
+            onClick={handleCancel}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <X className="w-4 h-4" />
+            <span>Cancel</span>
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Save</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
     );
@@ -2019,24 +2496,7 @@ const MasterEntry: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3 sm:gap-3 flex-shrink-0">
-            {isFormMode ? (
-              <>
-                <button
-                  onClick={handleCancel}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
-                >
-                  <X className="w-4 h-4" />
-                  <span className="hidden sm:inline">Cancel</span>
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
-                >
-                  <Save className="w-4 h-4" />
-                  <span className="hidden sm:inline">Save</span>
-                </button>
-              </>
-            ) : (
+            {!isFormMode && (
               <>
                 <button
                   onClick={handleExportClick}
@@ -2060,7 +2520,7 @@ const MasterEntry: React.FC = () => {
 
       {/* Content */}
       {isFormMode ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
+        <div className={`bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700 ${isSaving ? 'pointer-events-none opacity-50' : ''}`}>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
             {editingRecordId ? 'Edit' : 'Add New'} {beneficiaryTypeFilter.charAt(0).toUpperCase() + beneficiaryTypeFilter.slice(1)} Entry
           </h2>
@@ -2170,8 +2630,14 @@ const MasterEntry: React.FC = () => {
         title={confirmDialog.title}
         message={confirmDialog.message}
         type={confirmDialog.type}
+        confirmText={confirmDialog.confirmText}
+        secondaryText={confirmDialog.secondaryText}
         onConfirm={confirmDialog.onConfirm}
-        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onSecondary={confirmDialog.onSecondary}
+        onCancel={() => {
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+          setSaving(false);
+        }}
       />
     </div>
   );

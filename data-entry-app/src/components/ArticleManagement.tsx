@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save, Download } from 'lucide-react';
+import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save, Download, Loader2 } from 'lucide-react';
 import {
   fetchAllArticles,
   createArticle,
@@ -50,6 +50,9 @@ const ArticleManagement: React.FC = () => {
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Save loading state
+  const [isSaving, setSaving] = useState(false);
 
   // Load articles on component mount
   useEffect(() => {
@@ -177,6 +180,11 @@ const ArticleManagement: React.FC = () => {
       return;
     }
 
+    if (isSaving) {
+      return; // Prevent multiple clicks
+    }
+
+    setSaving(true);
     try {
       if (editingId) {
         await updateArticle(editingId, formData);
@@ -190,6 +198,8 @@ const ArticleManagement: React.FC = () => {
     } catch (error: any) {
       console.error('Failed to save article:', error);
       showError(error.message || 'Failed to save article. Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -291,7 +301,7 @@ const ArticleManagement: React.FC = () => {
       </div>
 
       {isFormMode ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700 mb-6">
+        <div className={`bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-200 dark:border-gray-700 mb-6 ${isSaving ? 'pointer-events-none opacity-50' : ''}`}>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
             {editingId ? 'Edit Article' : 'Add New Article'}
           </h2>
@@ -382,14 +392,25 @@ const ArticleManagement: React.FC = () => {
             <div className="flex gap-2 pt-4">
               <button
                 onClick={handleSave}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={isSaving}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="w-4 h-4" />
-                Save
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save</span>
+                  </>
+                )}
               </button>
               <button
                 onClick={handleCancel}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                disabled={isSaving}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <X className="w-4 h-4" />
                 Cancel

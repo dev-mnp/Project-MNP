@@ -4,11 +4,13 @@ import { AlertTriangle, X } from 'lucide-react';
 interface ConfirmDialogProps {
   isOpen: boolean;
   title: string;
-  message: string;
+  message: string | React.ReactNode;
   confirmText?: string;
   cancelText?: string;
+  secondaryText?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  onSecondary?: () => void;
   type?: 'danger' | 'warning' | 'info';
 }
 
@@ -18,8 +20,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   message,
   confirmText = 'Confirm',
   cancelText = 'Cancel',
+  secondaryText,
   onConfirm,
   onCancel,
+  onSecondary,
   type = 'warning',
 }) => {
   if (!isOpen) return null;
@@ -58,7 +62,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         </div>
 
         <div className="p-6">
-          <p className="text-gray-700 dark:text-gray-300 mb-6">{message}</p>
+          <div className="text-gray-700 dark:text-gray-300 mb-6">
+            {typeof message === 'string' ? <p>{message}</p> : message}
+          </div>
 
           <div className="flex justify-end space-x-3">
             <button
@@ -67,6 +73,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             >
               {cancelText}
             </button>
+            {secondaryText && onSecondary && (
+              <button
+                onClick={onSecondary}
+                className="px-4 py-2 border border-blue-300 dark:border-blue-600 rounded-lg text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
+              >
+                {secondaryText}
+              </button>
+            )}
             <button
               onClick={onConfirm}
               className={`px-4 py-2 text-white rounded-lg transition-colors ${getButtonColor()}`}

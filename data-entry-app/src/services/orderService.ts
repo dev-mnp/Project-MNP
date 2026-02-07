@@ -13,6 +13,7 @@ export interface OrderEntry {
   total_amount: number;
   expected_delivery_date?: string | null; // Date in YYYY-MM-DD format
   notes?: string | null;
+  fund_request_id?: string | null;
   created_at?: string;
   updated_at?: string;
   created_by?: string | null;

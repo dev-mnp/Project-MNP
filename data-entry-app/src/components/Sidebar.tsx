@@ -15,6 +15,7 @@ import {
   Warehouse,
   Users,
   ClipboardList,
+  DollarSign,
 } from 'lucide-react';
 import { useRBAC } from '../contexts/RBACContext';
 
@@ -42,6 +43,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'master-entry', label: 'Master Entry', icon: FileText, path: '/master-entry' },
     { id: 'article-management', label: 'Article Management', icon: Package, path: '/article-management' },
     { id: 'inventory-management', label: 'Order Management', icon: Warehouse, path: '/inventory-management' },
+    { id: 'fund-request', label: 'Fund Request', icon: DollarSign, path: '/fund-request' },
   ];
 
   // Add user management for admin

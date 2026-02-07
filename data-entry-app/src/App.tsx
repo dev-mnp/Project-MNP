@@ -15,6 +15,8 @@ import InventoryManagement from './components/InventoryManagement';
 import UserManagement from './components/UserManagement';
 import Profile from './components/Profile';
 import AuditLogs from './components/AuditLogs';
+import FundRequest from './components/FundRequest';
+import FundRequestForm from './components/FundRequestForm';
 
 // AppLayout component for authenticated routes
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -100,6 +102,9 @@ const AppContent: React.FC = () => {
                 <Route path="/master-entry" element={<MasterEntry />} />
                 <Route path="/article-management" element={<ArticleManagement />} />
                 <Route path="/inventory-management" element={<InventoryManagement />} />
+                <Route path="/fund-request" element={<FundRequest />} />
+                <Route path="/fund-request/new" element={<FundRequestForm />} />
+                <Route path="/fund-request/edit/:id" element={<FundRequestForm />} />
                 <Route path="/user-management" element={<UserManagement />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/audit-logs" element={<AuditLogs />} />

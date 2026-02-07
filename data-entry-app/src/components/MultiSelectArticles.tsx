@@ -134,7 +134,7 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
       comments: '',
     };
     onArticlesChange([...selectedArticles, newArticle]);
-    setSearchQuery('');
+    // Keep search query intact for further typing/selection
   };
 
   const handleArticleUpdate = (index: number, updatedArticle: ArticleSelection) => {
