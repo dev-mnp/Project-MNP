@@ -1,11 +1,52 @@
 import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabase';
 import { fetchFundRequestById, fetchPreviousFundRequestTotal, type FundRequestWithDetails } from './fundRequestService';
+import { aidFundRequestConfig } from '../config/excelTemplateConfig';
+import { pdf } from '@react-pdf/renderer';
+import React from 'react';
+import FundRequestPDFDocument from '../components/FundRequestPDFDocument';
+
+// Flag to enable/disable XLSX generation (currently disabled)
+const ENABLE_XLSX_GENERATION = true;
 
 /**
- * Generate Fund Request document for Aid or Article
+ * Generate Fund Request PDF document
  */
-export const generateFundRequestDocument = async (
+export const generateFundRequestPDF = async (
+  fundRequestId: string,
+  _type: 'Aid' | 'Article'
+): Promise<Blob> => {
+  try {
+    const fundRequest = await fetchFundRequestById(fundRequestId);
+    if (!fundRequest) {
+      throw new Error('Fund request not found');
+    }
+
+    // Calculate previous cumulative total
+    let previousCumulative = 0;
+    if (fundRequest.created_at && fundRequest.id) {
+      previousCumulative = await fetchPreviousFundRequestTotal(fundRequest.id, fundRequest.created_at);
+    }
+
+    // Generate PDF using React PDF
+    const pdfDoc = React.createElement(FundRequestPDFDocument, {
+      fundRequest,
+      previousCumulative,
+    }) as React.ReactElement;
+
+    // Generate PDF blob
+    const pdfBlob = await pdf(pdfDoc).toBlob();
+    return pdfBlob;
+  } catch (error) {
+    console.error('Error generating fund request PDF:', error);
+    throw error;
+  }
+};
+
+/**
+ * Generate Fund Request XLSX document (disabled by default)
+ */
+export const generateFundRequestXLSX = async (
   fundRequestId: string,
   type: 'Aid' | 'Article'
 ): Promise<Blob> => {
@@ -48,152 +89,163 @@ export const generateFundRequestDocument = async (
     const buffer = await workbook.xlsx.writeBuffer();
     return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   } catch (error) {
-    console.error('Error generating fund request document:', error);
+    console.error('Error generating fund request XLSX:', error);
     throw error;
   }
 };
 
 /**
- * Populate Aid Fund Request template with data
+ * Generate Fund Request document for Aid or Article
+ * Defaults to PDF generation (XLSX is disabled)
+ */
+export const generateFundRequestDocument = async (
+  fundRequestId: string,
+  type: 'Aid' | 'Article'
+): Promise<Blob> => {
+  // Use PDF by default, XLSX is disabled
+  if (ENABLE_XLSX_GENERATION) {
+    return generateFundRequestXLSX(fundRequestId, type);
+  } else {
+    return generateFundRequestPDF(fundRequestId, type);
+  }
+};
+
+/**
+ * Populate Aid Fund Request template with data using config-based approach
  */
 async function populateAidFundRequestTemplate(
   worksheet: ExcelJS.Worksheet,
   fundRequest: FundRequestWithDetails
 ): Promise<void> {
-  // Find and populate fund request number (usually in row 2 or 3, column B)
-  // Search for cells containing "Fund Request Number" or similar
-  let fundRequestNumberCell: ExcelJS.Cell | null = null;
-  let dataStartRow = 0;
+  const config = aidFundRequestConfig;
+
+  // 1. Populate fund request number
+  const frNumberCell = worksheet.getCell(config.fundRequestNumber);
+  frNumberCell.value = fundRequest.fund_request_number;
+
+  // 2. Clear existing data rows (from data start row to before signature)
+  const dataStartRow = config.dataTable.startRow;
+  const columns = config.dataTable.columns;
   
-  // Search for header row and data start row
-  worksheet.eachRow((row, rowNumber) => {
-    row.eachCell((cell, colNumber) => {
-      const cellValue = cell.value?.toString().toLowerCase() || '';
-      if (cellValue.includes('fund request number') || cellValue.includes('fr no')) {
-        // The value is usually in the next column
-        fundRequestNumberCell = worksheet.getCell(rowNumber, colNumber + 1);
-      }
-      // Look for table headers to find data start row
-      if (cellValue.includes('sl no') || cellValue.includes('beneficiary')) {
-        if (dataStartRow === 0) {
-          dataStartRow = rowNumber + 1; // Data starts after header row
-        }
-      }
-    });
-  });
-
-  // Update fund request number if found
-  if (fundRequestNumberCell) {
-    fundRequestNumberCell.value = fundRequest.fund_request_number;
-  }
-
-  // If we couldn't find the header row, try a different approach
-  // Look for the first row with "SL No" or similar
-  if (dataStartRow === 0) {
-    worksheet.eachRow((row, rowNumber) => {
-      const rowText = row.values?.toString().toLowerCase() || '';
-      if (rowText.includes('sl no') || rowText.includes('beneficiary')) {
-        dataStartRow = rowNumber + 1;
-        return false; // Stop iteration
-      }
-    });
-  }
-
-  // Clear existing data rows (keep header and structure)
-  // Find the last row with data before signature section
-  let lastDataRow = dataStartRow;
-  let foundSignature = false;
-  
+  // Find where signature section starts (look for "Prepared by" or similar)
+  let signatureStartRow = 0;
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber >= dataStartRow) {
       const rowText = row.values?.toString().toLowerCase() || '';
       if (rowText.includes('prepared by') || rowText.includes('signature') || rowText.includes('approved by')) {
-        foundSignature = true;
-        lastDataRow = rowNumber - 1;
+        signatureStartRow = rowNumber;
         return false; // Stop iteration
-      }
-      if (!foundSignature) {
-        lastDataRow = rowNumber;
       }
     }
   });
 
-  // Clear data rows (keep header)
-  if (dataStartRow > 0 && lastDataRow >= dataStartRow) {
-    for (let i = dataStartRow; i <= lastDataRow; i++) {
-      const row = worksheet.getRow(i);
-      row.eachCell((cell) => {
-        cell.value = null;
-      });
-    }
-  }
-
-  // Insert recipient data
-  if (fundRequest.recipients && fundRequest.recipients.length > 0) {
-    const insertRow = dataStartRow > 0 ? dataStartRow : 5; // Default to row 5 if not found
-    
-    fundRequest.recipients.forEach((recipient, index) => {
-      const row = worksheet.getRow(insertRow + index);
-      if (row) {
-        row.getCell(1).value = index + 1; // SL No
-        row.getCell(2).value = recipient.beneficiary || ''; // Beneficiary
-        row.getCell(3).value = recipient.name_of_beneficiary || recipient.recipient_name || ''; // Name of beneficiary
-        row.getCell(4).value = recipient.name_of_institution || ''; // Name of Institution
-        row.getCell(5).value = recipient.details || ''; // Details
-        row.getCell(6).value = recipient.fund_requested || 0; // Fund Requested
-        row.getCell(7).value = recipient.aadhar_number || ''; // AAdhar No
-        row.getCell(8).value = recipient.cheque_in_favour || ''; // Cheque in Favour
-        row.getCell(9).value = recipient.cheque_sl_no || ''; // Cheque Sl No
-      }
-    });
-
-    // Update total row (usually after recipient data)
-    const totalRowNumber = insertRow + fundRequest.recipients.length;
-    const totalRow = worksheet.getRow(totalRowNumber);
-    if (totalRow) {
-      const totalAmount = fundRequest.recipients.reduce((sum, r) => sum + (r.fund_requested || 0), 0);
-      
-      // Find the "Total" cell (usually in column 5 or 6)
-      totalRow.eachCell((cell, colNumber) => {
-        const cellValue = cell.value?.toString().toLowerCase() || '';
-        if (cellValue.includes('total')) {
-          // Set total in the next column (Fund Requested column)
-          const totalCell = totalRow.getCell(colNumber + 1);
-          if (totalCell) {
-            totalCell.value = totalAmount;
-            totalCell.numFmt = '#,##0.00';
-          }
+  // Clear data rows (keep header row which is dataStartRow - 1)
+  const lastDataRow = signatureStartRow > 0 ? signatureStartRow - 1 : dataStartRow + 10; // Fallback
+  for (let i = dataStartRow; i <= lastDataRow; i++) {
+    const row = worksheet.getRow(i);
+    if (row) {
+      // Clear only data columns, preserve any formatting
+      Object.values(columns).forEach((col) => {
+        const cell = row.getCell(col);
+        if (cell) {
+          cell.value = null;
         }
       });
     }
   }
 
-  // Add cumulative totals after signature section
-  if (fundRequest.created_at) {
-    const previousTotal = await fetchPreviousFundRequestTotal(fundRequest.id!, fundRequest.created_at);
+  // 3. Insert recipient data
+  if (fundRequest.recipients && fundRequest.recipients.length > 0) {
+    fundRequest.recipients.forEach((recipient, index) => {
+      const rowNumber = dataStartRow + index;
+      const row = worksheet.getRow(rowNumber);
+      
+      if (row) {
+        row.getCell(columns.slNo).value = index + 1;
+        row.getCell(columns.beneficiary).value = recipient.beneficiary || '';
+        row.getCell(columns.nameOfBeneficiary).value = recipient.name_of_beneficiary || recipient.recipient_name || '';
+        row.getCell(columns.nameOfInstitution).value = recipient.name_of_institution || '';
+        row.getCell(columns.details).value = recipient.details || '';
+        row.getCell(columns.fundRequested).value = recipient.fund_requested || 0;
+        row.getCell(columns.aadharNo).value = recipient.aadhar_number || '';
+        row.getCell(columns.chequeInFavour).value = recipient.cheque_in_favour || '';
+        row.getCell(columns.chequeSlNo).value = recipient.cheque_sl_no || '';
+      }
+    });
+
+    // 4. Update total row
+    const totalRowNumber = config.totalRow.row > 0 
+      ? config.totalRow.row 
+      : dataStartRow + fundRequest.recipients.length;
+    
+    const totalRow = worksheet.getRow(totalRowNumber);
+    if (totalRow) {
+      const totalAmount = fundRequest.recipients.reduce((sum, r) => sum + (r.fund_requested || 0), 0);
+      totalRow.getCell(config.totalRow.totalLabelColumn).value = 'Total:';
+      const totalCell = totalRow.getCell(config.totalRow.totalValueColumn);
+      totalCell.value = totalAmount;
+      totalCell.numFmt = '#,##0.00';
+      totalRow.font = { bold: true };
+    }
+  }
+
+  // 5. Calculate signature section start row (if dynamic)
+  let sigStartRow = config.signatureSection.startRow;
+  if (sigStartRow === 0) {
+    // Calculate: after total row + 2 blank rows
+    const totalRowNum = config.totalRow.row > 0 
+      ? config.totalRow.row 
+      : dataStartRow + (fundRequest.recipients?.length || 0);
+    sigStartRow = totalRowNum + 3;
+  }
+
+  // 6. Populate signature section (labels are already in template, we just ensure they exist)
+  // Signature section is usually already in template, so we don't need to add it
+
+  // 7. Add cumulative totals section
+  if (fundRequest.created_at && fundRequest.id) {
+    const previousTotal = await fetchPreviousFundRequestTotal(fundRequest.id, fundRequest.created_at);
     const currentTotal = fundRequest.total_amount || 0;
     const grandTotal = previousTotal + currentTotal;
 
-    // Find the last row and add cumulative section
-    let lastRow = worksheet.lastRow?.number || 0;
-    
-    // Add spacing
-    worksheet.addRow([]);
-    lastRow = worksheet.lastRow?.number || lastRow + 1;
-    
+    // Calculate cumulative section start row
+    let cumStartRow = config.cumulativeSection.startRow;
+    if (cumStartRow === 0) {
+      // Find last row with content, then add 2 blank rows
+      let lastContentRow = sigStartRow + 5; // Signature section is usually 5-6 rows
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber > lastContentRow) {
+          const values = row.values;
+          if (Array.isArray(values)) {
+            const hasContent = values.some((val: any) => val !== null && val !== '') || false;
+            if (hasContent) {
+              lastContentRow = rowNumber;
+            }
+          }
+        }
+      });
+      cumStartRow = lastContentRow + 2;
+    }
+
     // Add cumulative totals
-    const prevCumRow = worksheet.addRow(['PREVIOUS CUMULATIVE', '', '', '', '', previousTotal, '', '', '']);
-    prevCumRow.getCell(6).numFmt = '#,##0.00';
+    const prevCumRow = worksheet.getRow(cumStartRow);
+    prevCumRow.getCell(config.cumulativeSection.previousCumulative.labelCell).value = 'PREVIOUS CUMULATIVE';
+    prevCumRow.getCell(config.cumulativeSection.previousCumulative.valueCell).value = previousTotal;
+    prevCumRow.getCell(config.cumulativeSection.previousCumulative.valueCell).numFmt = '#,##0.00';
     prevCumRow.font = { bold: true };
-    
-    const currentRow = worksheet.addRow(['FUND REQUEST (current)', '', '', '', '', currentTotal, '', '', '']);
-    currentRow.getCell(6).numFmt = '#,##0.00';
+
+    const currentRow = worksheet.getRow(cumStartRow + 1);
+    currentRow.getCell(config.cumulativeSection.currentRequest.labelCell).value = 'FUND REQUEST (current)';
+    currentRow.getCell(config.cumulativeSection.currentRequest.valueCell).value = currentTotal;
+    currentRow.getCell(config.cumulativeSection.currentRequest.valueCell).numFmt = '#,##0.00';
     currentRow.font = { bold: true };
-    
-    const totalRow = worksheet.addRow(['TOTAL', '', '', '', '', grandTotal, '', '', '']);
-    totalRow.getCell(6).numFmt = '#,##0.00';
-    totalRow.font = { bold: true };
-    totalRow.fill = {
+
+    const totalCumRow = worksheet.getRow(cumStartRow + 2);
+    totalCumRow.getCell(config.cumulativeSection.total.labelCell).value = 'TOTAL';
+    totalCumRow.getCell(config.cumulativeSection.total.valueCell).value = grandTotal;
+    totalCumRow.getCell(config.cumulativeSection.total.valueCell).numFmt = '#,##0.00';
+    totalCumRow.font = { bold: true };
+    totalCumRow.fill = {
       type: 'pattern',
       pattern: 'solid',
       fgColor: { argb: 'FFE0E0E0' },
@@ -343,7 +395,6 @@ async function createArticleFundRequestSheet(
   // Fund request details
   worksheet.addRow([]);
   worksheet.addRow(['Fund Request Number:', fundRequest.fund_request_number]);
-  worksheet.addRow(['Cheque in Favour:', fundRequest.cheque_in_favour || '']);
 
   // Articles table
   if (fundRequest.articles && fundRequest.articles.length > 0) {
@@ -386,7 +437,7 @@ async function createArticleFundRequestSheet(
         article.value,
         article.cumulative,
         fundRequest.total_amount,
-        fundRequest.cheque_in_favour || '',
+        '', // cheque_in_favour not available for Article type
       ]);
     });
 
@@ -466,7 +517,7 @@ export const storeDocumentMetadata = async (
 /**
  * Generate Purchase Order document (on hold - placeholder)
  */
-export const generatePurchaseOrderDocument = async (fundRequestId: string): Promise<Blob> => {
+export const generatePurchaseOrderDocument = async (_fundRequestId: string): Promise<Blob> => {
   // TODO: Implement when template is provided
   throw new Error('Purchase Order document generation is not yet implemented');
 };

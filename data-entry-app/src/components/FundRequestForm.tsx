@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2, Plus, Trash2 } from 'lucide-react';
 import {
@@ -8,7 +8,6 @@ import {
   fetchExistingAidTypes,
   type FundRequest,
   type FundRequestRecipient,
-  type FundRequestArticle,
 } from '../services/fundRequestService';
 import { fetchAllArticles, type ArticleRecord } from '../services/articlesService';
 import {
@@ -38,7 +37,6 @@ const FundRequestForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
-  const [loadingArticles, setLoadingArticles] = useState(true);
 
   // Form state
   const [formData, setFormData] = useState<Partial<FundRequest>>({
@@ -133,14 +131,11 @@ const FundRequestForm: React.FC = () => {
 
   const loadArticles = async () => {
     try {
-      setLoadingArticles(true);
       const data = await fetchAllArticles(true);
       setArticles(data);
     } catch (error) {
       console.error('Failed to load articles:', error);
       showError('Failed to load articles.');
-    } finally {
-      setLoadingArticles(false);
     }
   };
 
@@ -796,7 +791,10 @@ const FundRequestForm: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={handleAddRecipient}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleAddRecipient();
+                  }}
                   className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
                 >
                   <Plus className="w-4 h-4" />
@@ -1066,6 +1064,7 @@ const FundRequestForm: React.FC = () => {
                   id: a.id,
                   name: a.article_name,
                   costPerUnit: a.cost_per_unit,
+                  itemType: a.item_type || 'Article',
                   category: a.category,
                 }))}
                 selectedArticles={selectedArticles}

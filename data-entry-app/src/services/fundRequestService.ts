@@ -68,34 +68,54 @@ const getCurrentUserId = async (): Promise<string | null> => {
 
 /**
  * Generate fund request number
+ * Format: FR-001, FR-002, etc.
  */
 export const generateFundRequestNumber = async (): Promise<string> => {
   try {
-    const currentYear = new Date().getFullYear();
+    // Get all fund requests to find the highest sequence number
     const { data, error } = await supabase
       .from('fund_request')
       .select('fund_request_number')
-      .like('fund_request_number', `FR-${currentYear}-%`)
-      .order('fund_request_number', { ascending: false })
-      .limit(1);
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    let sequence = 1;
+    let maxSequence = 0;
+
     if (data && data.length > 0) {
-      const lastNumber = data[0].fund_request_number;
-      const match = lastNumber.match(/-(\d+)$/);
-      if (match) {
-        sequence = parseInt(match[1], 10) + 1;
-      }
+      // Extract sequence numbers from all fund request numbers
+      // Handle both old format (FR-2026-0001) and new format (FR-001)
+      data.forEach((item) => {
+        const number = item.fund_request_number;
+        
+        // Try new format first: FR-001, FR-002, etc.
+        const newFormatMatch = number.match(/^FR-(\d+)$/);
+        if (newFormatMatch) {
+          const seq = parseInt(newFormatMatch[1], 10);
+          if (seq > maxSequence) {
+            maxSequence = seq;
+          }
+        } else {
+          // Try old format: FR-2026-0001, etc.
+          const oldFormatMatch = number.match(/^FR-\d{4}-(\d+)$/);
+          if (oldFormatMatch) {
+            const seq = parseInt(oldFormatMatch[1], 10);
+            if (seq > maxSequence) {
+              maxSequence = seq;
+            }
+          }
+        }
+      });
     }
 
-    return `FR-${currentYear}-${sequence.toString().padStart(4, '0')}`;
+    // Generate next sequence number
+    const nextSequence = maxSequence + 1;
+    return `FR-${nextSequence.toString().padStart(3, '0')}`;
   } catch (error) {
     console.error('Error generating fund request number:', error);
-    const currentYear = new Date().getFullYear();
-    const timestamp = Date.now().toString().slice(-4);
-    return `FR-${currentYear}-${timestamp}`;
+    // Fallback: use timestamp-based number
+    const timestamp = Date.now().toString().slice(-6);
+    return `FR-${timestamp}`;
   }
 };
 

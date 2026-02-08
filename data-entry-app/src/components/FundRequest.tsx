@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   fetchFundRequests,
   deleteFundRequest,
-  type FundRequest,
+  type FundRequest as FundRequestType,
 } from '../services/fundRequestService';
 import { generateFundRequestDocument, storeDocumentMetadata } from '../services/documentGenerationService';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -16,8 +16,8 @@ const FundRequest: React.FC = () => {
   const navigate = useNavigate();
   const { showError, showSuccess } = useNotifications();
   const { canDelete } = useRBAC();
-  const [fundRequests, setFundRequests] = useState<FundRequest[]>([]);
-  const [filteredFundRequests, setFilteredFundRequests] = useState<FundRequest[]>([]);
+  const [fundRequests, setFundRequests] = useState<FundRequestType[]>([]);
+  const [filteredFundRequests, setFilteredFundRequests] = useState<FundRequestType[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Filters
@@ -132,7 +132,8 @@ const FundRequest: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `Fund_Request_${fundRequestNumber}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      // Use PDF extension by default (XLSX is disabled)
+      link.download = `Fund_Request_${fundRequestNumber}_${new Date().toISOString().split('T')[0]}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -150,20 +151,6 @@ const FundRequest: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'approved':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-      case 'submitted':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-      case 'rejected':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
-    }
-  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -264,9 +251,6 @@ const FundRequest: React.FC = () => {
                     Type
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Total Amount
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -285,11 +269,6 @@ const FundRequest: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {fundRequest.fund_request_type}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(fundRequest.status)}`}>
-                        {fundRequest.status}
-                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                       {CURRENCY_SYMBOL} {fundRequest.total_amount.toLocaleString()}
@@ -318,7 +297,7 @@ const FundRequest: React.FC = () => {
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        {canDelete && (
+                        {canDelete() && (
                           <button
                             onClick={() => handleDelete(fundRequest.id!, fundRequest.fund_request_number)}
                             className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900 rounded transition-colors"

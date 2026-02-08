@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 
 export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'STATUS_CHANGE';
-export type EntityType = 'article' | 'master_entry' | 'order' | 'user' | 'district_beneficiary' | 'public_beneficiary' | 'institution_beneficiary' | 'system';
+export type EntityType = 'article' | 'master_entry' | 'order' | 'user' | 'district_beneficiary' | 'public_beneficiary' | 'institution_beneficiary' | 'system' | 'fund_request';
 
 export interface AuditLog {
   id: string;
