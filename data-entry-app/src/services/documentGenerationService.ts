@@ -5,9 +5,11 @@ import { aidFundRequestConfig } from '../config/excelTemplateConfig';
 import { pdf } from '@react-pdf/renderer';
 import React from 'react';
 import FundRequestPDFDocument from '../components/FundRequestPDFDocument';
+import PurchaseOrderPDFDocument from '../components/PurchaseOrderPDFDocument';
+import { formatDate, getBeneficiaryDisplayValue } from '../utils/fundRequestUtils';
 
 // Flag to enable/disable XLSX generation (currently disabled)
-const ENABLE_XLSX_GENERATION = true;
+export const ENABLE_XLSX_GENERATION = false;
 
 /**
  * Generate Fund Request PDF document
@@ -119,7 +121,18 @@ async function populateAidFundRequestTemplate(
 ): Promise<void> {
   const config = aidFundRequestConfig;
 
-  // 1. Populate fund request number
+  // 1. Populate title row (row 4) with format: "FUND Request No: ${fund_request_number} Dated ${date} - ${aid_type} AID"
+  const formattedDate = formatDate(fundRequest.created_at);
+  const titleText = fundRequest.aid_type
+    ? `FUND Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - ${fundRequest.aid_type} AID`
+    : `FUND Request No: ${fundRequest.fund_request_number} Dated ${formattedDate}`;
+  
+  // Populate row 4 with the title (typically in column A, but could span multiple columns)
+  const titleRow = worksheet.getRow(4);
+  const titleCell = titleRow.getCell(1); // Column A
+  titleCell.value = titleText;
+
+  // 2. Populate fund request number (if different from title row)
   const frNumberCell = worksheet.getCell(config.fundRequestNumber);
   frNumberCell.value = fundRequest.fund_request_number;
 
@@ -162,7 +175,7 @@ async function populateAidFundRequestTemplate(
       
       if (row) {
         row.getCell(columns.slNo).value = index + 1;
-        row.getCell(columns.beneficiary).value = recipient.beneficiary || '';
+        row.getCell(columns.beneficiary).value = getBeneficiaryDisplayValue(recipient);
         row.getCell(columns.nameOfBeneficiary).value = recipient.name_of_beneficiary || recipient.recipient_name || '';
         row.getCell(columns.nameOfInstitution).value = recipient.name_of_institution || '';
         row.getCell(columns.details).value = recipient.details || '';
@@ -260,15 +273,19 @@ async function createAidFundRequestSheet(
   worksheet: ExcelJS.Worksheet,
   fundRequest: FundRequestWithDetails
 ): Promise<void> {
-  // Header row
-  worksheet.addRow(['FUND REQUEST']);
+  // Title row with format: "FUND Request No: ${fund_request_number} Dated ${date} - ${aid_type} AID"
+  const formattedDate = formatDate(fundRequest.created_at);
+  const titleText = fundRequest.aid_type
+    ? `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - ${fundRequest.aid_type} Aid`
+    : `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate}`;
+  
+  worksheet.addRow([titleText]);
   worksheet.mergeCells('A1:I1');
   worksheet.getCell('A1').font = { size: 16, bold: true };
   worksheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
 
   // Fund request details
   worksheet.addRow([]);
-  worksheet.addRow(['Fund Request Number:', fundRequest.fund_request_number]);
 
   // Recipients table
   if (fundRequest.recipients && fundRequest.recipients.length > 0) {
@@ -302,7 +319,7 @@ async function createAidFundRequestSheet(
     fundRequest.recipients.forEach((recipient, index) => {
       worksheet.addRow([
         index + 1,
-        recipient.beneficiary || '',
+        getBeneficiaryDisplayValue(recipient),
         recipient.name_of_beneficiary || recipient.recipient_name || '',
         recipient.name_of_institution || '',
         recipient.details || '',
@@ -402,15 +419,14 @@ async function createArticleFundRequestSheet(
     
     const headers = [
       'SL.NO',
-      'BENIFICIARY',
+      'BENEFICIARY',
       'ARTICLE NAME',
       'GST NO.',
       'QTY',
       'PRICE INCLUDING GST',
       'VALUE',
-      'CUMULATIVE',
-      'GRAND TOTAL',
       'CHEQUE IN FAVOUR',
+      'CHEQUE SL.NO',
     ];
 
     worksheet.addRow(headers);
@@ -429,15 +445,14 @@ async function createArticleFundRequestSheet(
     fundRequest.articles.forEach((article) => {
       worksheet.addRow([
         article.sl_no || '',
-        article.beneficiary || '',
+        'Dist & Public', // Hardcoded beneficiary
         article.article_name,
-        article.gst_no || '',
+        fundRequest.gst_number || article.gst_no || '', // Use GST from fund_request
         article.quantity,
         article.price_including_gst,
         article.value,
-        article.cumulative,
-        fundRequest.total_amount,
-        '', // cheque_in_favour not available for Article type
+        article.cheque_in_favour || '',
+        article.cheque_sl_no || '',
       ]);
     });
 
@@ -449,14 +464,12 @@ async function createArticleFundRequestSheet(
       '',
       '',
       '',
-      fundRequest.articles.reduce((sum, a) => sum + a.value, 0),
+      fundRequest.articles.reduce((sum, a) => sum + (a.value || 0), 0),
       '',
-      fundRequest.total_amount,
       '',
     ]);
     totalRow.font = { bold: true };
     totalRow.getCell(7).alignment = { horizontal: 'right' };
-    totalRow.getCell(9).alignment = { horizontal: 'right' };
 
     // Auto-fit columns
     worksheet.columns.forEach((column) => {
@@ -515,9 +528,331 @@ export const storeDocumentMetadata = async (
 };
 
 /**
- * Generate Purchase Order document (on hold - placeholder)
+ * Format date to DD-MM-YY format for Purchase Order
  */
-export const generatePurchaseOrderDocument = async (_fundRequestId: string): Promise<Blob> => {
-  // TODO: Implement when template is provided
-  throw new Error('Purchase Order document generation is not yet implemented');
+const formatPODate = (): string => {
+  const date = new Date();
+  const day = date.getDate().toString().padStart(2, '0');
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const year = date.getFullYear().toString().slice(-2);
+  return `${day}-${month}-${year}`;
+};
+
+/**
+ * Generate Purchase Order document for Article fund requests
+ */
+export const generatePurchaseOrderDocument = async (fundRequestId: string): Promise<Blob> => {
+  try {
+    const fundRequest = await fetchFundRequestById(fundRequestId);
+    if (!fundRequest) {
+      throw new Error('Fund request not found');
+    }
+
+    if (fundRequest.fund_request_type !== 'Article') {
+      throw new Error('Purchase Order can only be generated for Article type fund requests');
+    }
+
+    if (!fundRequest.articles || fundRequest.articles.length === 0) {
+      throw new Error('No articles found in fund request');
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Purchase Order');
+    
+    const currentDate = formatPODate();
+    const totalAmount = fundRequest.articles.reduce((sum, a) => sum + (a.value || 0), 0);
+
+    // Set row heights for logo section (rows 1-2, each 30)
+    worksheet.getRow(1).height = 30;
+    worksheet.getRow(2).height = 30;
+
+    // Try to add logo image
+    // Note: ExcelJS doesn't support WebP directly, so we'll skip the logo in XLSX for now
+    // The logo will be included in the PDF version
+    // If needed, convert logo.webp to PNG/JPEG for XLSX support
+
+    // Company information below logo (rows 3-7)
+    worksheet.getRow(3).getCell(1).value = 'Melmaruvathur Adhiparasakthi Spiritual Movement';
+    worksheet.getRow(4).getCell(1).value = 'GST Road, Melmaruvathur 603319';
+    worksheet.getRow(5).getCell(1).value = 'Chengalpet District, Tamilnadu';
+    worksheet.getRow(6).getCell(1).value = 'GST NO: 33AACTM0073D1Z5.';
+    worksheet.getRow(7).getCell(1).value = 'Website: maruvoorhelp@gmail.com';
+
+    // Style company info
+    for (let i = 3; i <= 7; i++) {
+      const cell = worksheet.getRow(i).getCell(1);
+      cell.font = { size: 9 };
+    }
+
+    // "PURCHASE ORDER" text on right (rows 1-2, columns E-F)
+    const poCell = worksheet.getRow(1).getCell(5);
+    poCell.value = 'PURCHASE ORDER';
+    poCell.font = { size: 20, bold: true, color: { argb: 'FF008000' } };
+    poCell.alignment = { vertical: 'middle', horizontal: 'center' };
+    worksheet.mergeCells('E1:F1');
+
+    // Date below "PURCHASE ORDER" (row 3)
+    const dateLabelCell = worksheet.getRow(3).getCell(5);
+    dateLabelCell.value = 'DATE';
+    dateLabelCell.font = { size: 10, bold: true };
+    const dateValueCell = worksheet.getRow(3).getCell(6);
+    dateValueCell.value = currentDate;
+    dateValueCell.font = { size: 10 };
+
+    // Empty row
+    worksheet.addRow([]);
+    let currentRow = 9;
+
+    // Vendor Section (left side)
+    const vendorHeaderRow = worksheet.getRow(currentRow);
+    vendorHeaderRow.getCell(1).value = 'VENDOR';
+    vendorHeaderRow.getCell(1).font = { size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    vendorHeaderRow.getCell(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF008000' },
+    };
+    vendorHeaderRow.getCell(1).alignment = { vertical: 'middle' };
+    worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
+    currentRow++;
+
+    // Vendor details
+    worksheet.getRow(currentRow++).getCell(1).value = fundRequest.supplier_name || '';
+    worksheet.getRow(currentRow++).getCell(1).value = fundRequest.gst_number || '';
+    worksheet.getRow(currentRow++).getCell(1).value = fundRequest.supplier_address || '';
+    const cityStatePincode = [fundRequest.supplier_city, fundRequest.supplier_state, fundRequest.supplier_pincode]
+      .filter(Boolean)
+      .join(', ');
+    worksheet.getRow(currentRow++).getCell(1).value = cityStatePincode;
+
+    // Ship To Section (right side, same rows)
+    const shipToStartRow = 9;
+    const shipToHeaderRow = worksheet.getRow(shipToStartRow);
+    shipToHeaderRow.getCell(4).value = 'SHIP TO';
+    shipToHeaderRow.getCell(4).font = { size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    shipToHeaderRow.getCell(4).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF008000' },
+    };
+    shipToHeaderRow.getCell(4).alignment = { vertical: 'middle' };
+    worksheet.mergeCells(`D${shipToStartRow}:E${shipToStartRow}`);
+
+    let shipToRow = shipToStartRow + 1;
+    worksheet.getRow(shipToRow++).getCell(4).value = 'Melmaruvathur Adhiparasakthi Spiritual Movement';
+    worksheet.getRow(shipToRow++).getCell(4).value = 'GST Road, Melmaruvathur 603319';
+    worksheet.getRow(shipToRow++).getCell(4).value = 'Chengalpet District, Tamilnadu';
+
+    // Style vendor and ship-to content
+    for (let i = shipToStartRow + 1; i <= shipToStartRow + 4; i++) {
+      const vendorCell = worksheet.getRow(i).getCell(1);
+      const shipToCell = worksheet.getRow(i).getCell(4);
+      if (vendorCell.value) vendorCell.font = { size: 9 };
+      if (shipToCell.value) shipToCell.font = { size: 9 };
+    }
+
+    // Empty rows (2-3 rows)
+    currentRow += 2;
+    worksheet.addRow([]);
+    worksheet.addRow([]);
+    currentRow += 2;
+
+    // Item Table Headers
+    const headerRow = worksheet.getRow(currentRow);
+    headerRow.getCell(1).value = 'ITEM NAME';
+    headerRow.getCell(2).value = 'DESCRIPTION';
+    headerRow.getCell(3).value = 'QTY';
+    headerRow.getCell(4).value = 'UNIT PRICE';
+    headerRow.getCell(5).value = 'TOTAL';
+
+    // Style header row
+    for (let col = 1; col <= 5; col++) {
+      const cell = headerRow.getCell(col);
+      cell.font = { size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF008000' },
+      };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+    }
+    currentRow++;
+
+    // Article data rows
+    fundRequest.articles.forEach((article) => {
+      const row = worksheet.getRow(currentRow);
+      row.getCell(1).value = article.supplier_article_name || article.article_name || '';
+      row.getCell(2).value = ''; // Description left empty
+      row.getCell(3).value = article.quantity || 0;
+      row.getCell(4).value = article.price_including_gst || 0;
+      row.getCell(5).value = article.value || 0;
+
+      // Style data row
+      for (let col = 1; col <= 5; col++) {
+        const cell = row.getCell(col);
+        cell.font = { size: 9 };
+        cell.alignment = { 
+          vertical: 'middle', 
+          horizontal: col === 4 || col === 5 ? 'right' : 'left' 
+        };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+        if (col === 4 || col === 5) {
+          cell.numFmt = '#,##0.00';
+        }
+      }
+      currentRow++;
+    });
+
+    // Total row
+    const totalRow = worksheet.getRow(currentRow);
+    totalRow.getCell(4).value = 'TOTAL';
+    totalRow.getCell(4).font = { size: 10, bold: true };
+    totalRow.getCell(4).alignment = { horizontal: 'right' };
+    totalRow.getCell(5).value = totalAmount;
+    totalRow.getCell(5).font = { size: 10, bold: true };
+    totalRow.getCell(5).numFmt = '₹ #,##0.00';
+    totalRow.getCell(5).alignment = { horizontal: 'right' };
+    totalRow.getCell(5).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF5F5F5' },
+    };
+    currentRow++;
+
+    // Empty row
+    currentRow++;
+    worksheet.addRow([]);
+
+    // Comments Section
+    const commentsHeaderRow = worksheet.getRow(currentRow);
+    commentsHeaderRow.getCell(1).value = 'Comments or Special Instructions';
+    commentsHeaderRow.getCell(1).font = { size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    commentsHeaderRow.getCell(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF008000' },
+    };
+    commentsHeaderRow.getCell(1).alignment = { vertical: 'middle' };
+    worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
+    currentRow++;
+
+    // Empty rows for comments (4-5 rows)
+    for (let i = 0; i < 5; i++) {
+      const row = worksheet.getRow(currentRow + i);
+      row.getCell(1).border = {
+        top: { style: 'dashed' },
+        left: { style: 'dashed' },
+        bottom: { style: 'dashed' },
+        right: { style: 'dashed' },
+      };
+      worksheet.mergeCells(`A${currentRow + i}:B${currentRow + i}`);
+      row.height = 15;
+    }
+    currentRow += 5;
+
+    // Footer - Contact information (centered, last 2 rows)
+    const footerRow1 = worksheet.getRow(currentRow);
+    footerRow1.getCell(1).value = 'If you have any questions about this purchase order, please contact';
+    footerRow1.getCell(1).font = { size: 9 };
+    footerRow1.getCell(1).alignment = { horizontal: 'center' };
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    currentRow++;
+
+    const footerRow2 = worksheet.getRow(currentRow);
+    footerRow2.getCell(1).value = 'R.Surendranath, +91 98400 46263, maruvoorhelp@gmail.com';
+    footerRow2.getCell(1).font = { size: 9 };
+    footerRow2.getCell(1).alignment = { horizontal: 'center' };
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+
+    // Set column widths
+    worksheet.getColumn(1).width = 25; // ITEM NAME
+    worksheet.getColumn(2).width = 25; // DESCRIPTION
+    worksheet.getColumn(3).width = 10; // QTY
+    worksheet.getColumn(4).width = 15; // UNIT PRICE
+    worksheet.getColumn(5).width = 15; // TOTAL
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  } catch (error) {
+    console.error('Error generating purchase order document:', error);
+    throw error;
+  }
+};
+
+/**
+ * Load logo image and convert to data URI
+ */
+const loadLogoAsDataUri = async (): Promise<string | null> => {
+  try {
+    // Try public folder first
+    let response = await fetch('/model-docs/logo.png');
+    if (!response.ok) {
+      // Fallback: try src folder (for development)
+      response = await fetch('/src/model-docs/logo.png');
+    }
+    if (response.ok) {
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve(reader.result as string);
+        };
+        reader.onerror = () => {
+          resolve(null);
+        };
+        reader.readAsDataURL(blob);
+      });
+    }
+  } catch (error) {
+    console.warn('Could not load logo:', error);
+  }
+  return null;
+};
+
+/**
+ * Generate Purchase Order PDF document for Article fund requests
+ */
+export const generatePurchaseOrderPDF = async (fundRequestId: string): Promise<Blob> => {
+  try {
+    const fundRequest = await fetchFundRequestById(fundRequestId);
+    if (!fundRequest) {
+      throw new Error('Fund request not found');
+    }
+
+    if (fundRequest.fund_request_type !== 'Article') {
+      throw new Error('Purchase Order can only be generated for Article type fund requests');
+    }
+
+    if (!fundRequest.articles || fundRequest.articles.length === 0) {
+      throw new Error('No articles found in fund request');
+    }
+
+    // Load logo as data URI
+    const logoDataUri = await loadLogoAsDataUri();
+
+    // Generate PDF using React PDF
+    const pdfDoc = React.createElement(PurchaseOrderPDFDocument, {
+      fundRequest,
+      logoDataUri,
+    }) as React.ReactElement;
+
+    // Generate PDF blob
+    const pdfBlob = await pdf(pdfDoc).toBlob();
+    return pdfBlob;
+  } catch (error) {
+    console.error('Error generating purchase order PDF:', error);
+    throw error;
+  }
 };

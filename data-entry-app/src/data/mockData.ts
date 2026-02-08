@@ -26,7 +26,9 @@ export interface ArticleSelection {
   quantity: number;
   costPerUnit: number;
   totalValue: number;
-  comments: string;
+  comments?: string; // Optional, kept for backward compatibility
+  cheque_in_favour?: string; // For Article fund requests
+  supplier_article_name?: string; // For Article fund requests
 }
 
 export interface MasterEntryRecord {

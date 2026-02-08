@@ -68,8 +68,9 @@ export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?
 /**
  * Fetch district beneficiaries for dropdown
  * Returns: { application_number, district_name, total_amount }[]
+ * @param aidType - Optional aid type to filter by (matches article name or category)
  */
-export const fetchDistrictBeneficiariesForDropdown = async (): Promise<BeneficiaryDropdownOption[]> => {
+export const fetchDistrictBeneficiariesForDropdown = async (aidType?: string): Promise<BeneficiaryDropdownOption[]> => {
   try {
     const { data, error } = await supabase
       .from('district_beneficiary_entries')
@@ -80,7 +81,9 @@ export const fetchDistrictBeneficiariesForDropdown = async (): Promise<Beneficia
           district_name
         ),
         articles:article_id (
-          item_type
+          item_type,
+          article_name,
+          category
         )
       `)
       .not('application_number', 'is', null)
@@ -105,6 +108,18 @@ export const fetchDistrictBeneficiariesForDropdown = async (): Promise<Beneficia
       // Only include entries where article item_type is 'Aid'
       const articleItemType = entry.articles?.item_type;
       if (articleItemType !== 'Aid') return;
+
+      // Filter by aid_type if provided (match article name or category)
+      if (aidType && aidType.trim()) {
+        const articleName = entry.articles?.article_name?.toLowerCase() || '';
+        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const aidTypeLower = aidType.toLowerCase();
+        
+        const matchesName = articleName.includes(aidTypeLower);
+        const matchesCategory = articleCategory.includes(aidTypeLower);
+        
+        if (!matchesName && !matchesCategory) return;
+      }
 
       const districtName = entry.district_master?.district_name || '';
       const amount = parseFloat(entry.total_amount) || 0;
@@ -136,8 +151,9 @@ export const fetchDistrictBeneficiariesForDropdown = async (): Promise<Beneficia
 /**
  * Fetch public beneficiaries for dropdown
  * Returns: { application_number, name, total_amount }[]
+ * @param aidType - Optional aid type to filter by (matches article name or category)
  */
-export const fetchPublicBeneficiariesForDropdown = async (): Promise<BeneficiaryDropdownOption[]> => {
+export const fetchPublicBeneficiariesForDropdown = async (aidType?: string): Promise<BeneficiaryDropdownOption[]> => {
   try {
     const { data, error } = await supabase
       .from('public_beneficiary_entries')
@@ -146,7 +162,9 @@ export const fetchPublicBeneficiariesForDropdown = async (): Promise<Beneficiary
         name,
         total_amount,
         articles:article_id (
-          item_type
+          item_type,
+          article_name,
+          category
         )
       `)
       .not('application_number', 'is', null)
@@ -171,6 +189,18 @@ export const fetchPublicBeneficiariesForDropdown = async (): Promise<Beneficiary
       // Only include entries where article item_type is 'Aid'
       const articleItemType = entry.articles?.item_type;
       if (articleItemType !== 'Aid') return;
+
+      // Filter by aid_type if provided (match article name or category)
+      if (aidType && aidType.trim()) {
+        const articleName = entry.articles?.article_name?.toLowerCase() || '';
+        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const aidTypeLower = aidType.toLowerCase();
+        
+        const matchesName = articleName.includes(aidTypeLower);
+        const matchesCategory = articleCategory.includes(aidTypeLower);
+        
+        if (!matchesName && !matchesCategory) return;
+      }
 
       const name = entry.name || '';
       const amount = parseFloat(entry.total_amount) || 0;
@@ -203,8 +233,9 @@ export const fetchPublicBeneficiariesForDropdown = async (): Promise<Beneficiary
  * Fetch institution beneficiaries for dropdown
  * Returns: { application_number, institution_name, total_amount }[]
  * where institution_type = 'institutions'
+ * @param aidType - Optional aid type to filter by (matches article name or category)
  */
-export const fetchInstitutionBeneficiariesForDropdown = async (): Promise<BeneficiaryDropdownOption[]> => {
+export const fetchInstitutionBeneficiariesForDropdown = async (aidType?: string): Promise<BeneficiaryDropdownOption[]> => {
   try {
     const { data, error } = await supabase
       .from('institutions_beneficiary_entries')
@@ -213,7 +244,9 @@ export const fetchInstitutionBeneficiariesForDropdown = async (): Promise<Benefi
         institution_name,
         total_amount,
         articles:article_id (
-          item_type
+          item_type,
+          article_name,
+          category
         )
       `)
       .eq('institution_type', 'institutions')
@@ -239,6 +272,18 @@ export const fetchInstitutionBeneficiariesForDropdown = async (): Promise<Benefi
       // Only include entries where article item_type is 'Aid'
       const articleItemType = entry.articles?.item_type;
       if (articleItemType !== 'Aid') return;
+
+      // Filter by aid_type if provided (match article name or category)
+      if (aidType && aidType.trim()) {
+        const articleName = entry.articles?.article_name?.toLowerCase() || '';
+        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const aidTypeLower = aidType.toLowerCase();
+        
+        const matchesName = articleName.includes(aidTypeLower);
+        const matchesCategory = articleCategory.includes(aidTypeLower);
+        
+        if (!matchesName && !matchesCategory) return;
+      }
 
       const institutionName = entry.institution_name || '';
       const amount = parseFloat(entry.total_amount) || 0;
@@ -271,8 +316,9 @@ export const fetchInstitutionBeneficiariesForDropdown = async (): Promise<Benefi
  * Fetch others beneficiaries for dropdown
  * Returns: { application_number, institution_name, total_amount }[]
  * where institution_type = 'others'
+ * @param aidType - Optional aid type to filter by (matches article name or category)
  */
-export const fetchOthersBeneficiariesForDropdown = async (): Promise<BeneficiaryDropdownOption[]> => {
+export const fetchOthersBeneficiariesForDropdown = async (aidType?: string): Promise<BeneficiaryDropdownOption[]> => {
   try {
     const { data, error } = await supabase
       .from('institutions_beneficiary_entries')
@@ -281,7 +327,9 @@ export const fetchOthersBeneficiariesForDropdown = async (): Promise<Beneficiary
         institution_name,
         total_amount,
         articles:article_id (
-          item_type
+          item_type,
+          article_name,
+          category
         )
       `)
       .eq('institution_type', 'others')
@@ -307,6 +355,18 @@ export const fetchOthersBeneficiariesForDropdown = async (): Promise<Beneficiary
       // Only include entries where article item_type is 'Aid'
       const articleItemType = entry.articles?.item_type;
       if (articleItemType !== 'Aid') return;
+
+      // Filter by aid_type if provided (match article name or category)
+      if (aidType && aidType.trim()) {
+        const articleName = entry.articles?.article_name?.toLowerCase() || '';
+        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const aidTypeLower = aidType.toLowerCase();
+        
+        const matchesName = articleName.includes(aidTypeLower);
+        const matchesCategory = articleCategory.includes(aidTypeLower);
+        
+        if (!matchesName && !matchesCategory) return;
+      }
 
       const institutionName = entry.institution_name || '';
       const amount = parseFloat(entry.total_amount) || 0;

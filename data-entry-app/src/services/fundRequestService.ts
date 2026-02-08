@@ -9,6 +9,12 @@ export interface FundRequest {
   status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'completed';
   total_amount: number;
   aid_type?: string; // Type of aid (e.g., 'Medical Aid', 'Education Aid', 'Accident Aid', etc.)
+  gst_number?: string; // GST number for Article type fund requests (applies to all articles)
+  supplier_name?: string; // Supplier name for Article type fund requests
+  supplier_address?: string; // Supplier address for Article type fund requests
+  supplier_city?: string; // Supplier city for Article type fund requests
+  supplier_state?: string; // Supplier state for Article type fund requests
+  supplier_pincode?: string; // Supplier pincode for Article type fund requests
   notes?: string;
   created_at?: string;
   updated_at?: string;
@@ -46,6 +52,9 @@ export interface FundRequestArticle {
   price_including_gst: number;
   value: number;
   cumulative: number;
+  cheque_in_favour?: string;
+  cheque_sl_no?: string;
+  supplier_article_name?: string;
   created_at?: string;
 }
 
@@ -351,15 +360,11 @@ export const createFundRequest = async (data: {
 
     // Insert articles if Article type
     if (data.fundRequest.fund_request_type === 'Article' && data.articles && data.articles.length > 0) {
-      // Calculate cumulative values
-      let cumulative = 0;
-      const articlesWithCumulative = data.articles.map(article => {
-        cumulative += article.value;
-        return {
-          ...article,
-          cumulative,
-        };
-      });
+      // Use cumulative from article data (set to 0 in form, but keep for backward compatibility)
+      const articlesWithCumulative = data.articles.map(article => ({
+        ...article,
+        cumulative: article.cumulative || 0, // Use provided cumulative or default to 0
+      }));
 
       const { data: articles, error: articlesError } = await supabase
         .from('fund_request_articles')
@@ -512,15 +517,11 @@ export const updateFundRequest = async (
 
       // Insert new articles
       if (data.articles.length > 0) {
-        // Calculate cumulative values
-        let cumulative = 0;
-        const articlesWithCumulative = data.articles.map(article => {
-          cumulative += article.value;
-          return {
-            ...article,
-            cumulative,
-          };
-        });
+        // Use cumulative from article data (set to 0 in form, but keep for backward compatibility)
+        const articlesWithCumulative = data.articles.map(article => ({
+          ...article,
+          cumulative: article.cumulative || 0, // Use provided cumulative or default to 0
+        }));
 
         const { data: articles, error: articlesError } = await supabase
           .from('fund_request_articles')

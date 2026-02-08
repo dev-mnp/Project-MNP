@@ -13,6 +13,7 @@ interface MultiSelectArticlesProps {
   label?: string;
   required?: boolean;
   districtId?: string;
+  showArticleFRFields?: boolean; // If true, show cheque_in_favour and supplier_article_name in ArticleRow
 }
 
 const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
@@ -22,6 +23,7 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
   label = 'Select Articles',
   required = false,
   districtId,
+  showArticleFRFields = false,
 }) => {
   const { showWarning } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
@@ -266,6 +268,7 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
                 onUpdate={(updated) => handleArticleUpdate(index, updated)}
                 onRemove={() => handleArticleRemove(index)}
                 originalCostPerUnit={originalArticle?.costPerUnit}
+                showArticleFRFields={showArticleFRFields}
               />
             );
           })}

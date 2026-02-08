@@ -6,7 +6,7 @@ import {
   deleteFundRequest,
   type FundRequest as FundRequestType,
 } from '../services/fundRequestService';
-import { generateFundRequestDocument, storeDocumentMetadata } from '../services/documentGenerationService';
+import { generateFundRequestDocument, generatePurchaseOrderPDF, storeDocumentMetadata, ENABLE_XLSX_GENERATION } from '../services/documentGenerationService';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useRBAC } from '../contexts/RBACContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
@@ -41,8 +41,8 @@ const FundRequest: React.FC = () => {
     onConfirm: () => {},
   });
 
-  // Download loading state
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // Download loading state - track both ID and type (fr or po)
+  const [downloading, setDownloading] = useState<{ id: string; type: 'fr' | 'po' } | null>(null);
 
   useEffect(() => {
     loadFundRequests();
@@ -125,15 +125,18 @@ const FundRequest: React.FC = () => {
 
   const handleDownload = async (id: string, type: 'Aid' | 'Article', fundRequestNumber: string) => {
     try {
-      setDownloadingId(id);
+      setDownloading({ id, type: 'fr' });
       const blob = await generateFundRequestDocument(id, type);
       
       // Create download link
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      // Use PDF extension by default (XLSX is disabled)
-      link.download = `Fund_Request_${fundRequestNumber}_${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      // Use appropriate extension based on flag
+      const extension = ENABLE_XLSX_GENERATION ? 'xlsx' : 'pdf';
+      console.log("Enable SXLSX:",extension);
+      link.download = `Fund_Request_${fundRequestNumber}_${new Date().toISOString().split('T')[0]}.${extension}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -147,7 +150,36 @@ const FundRequest: React.FC = () => {
       console.error('Failed to download document:', error);
       showError('Failed to download document. Please try again.');
     } finally {
-      setDownloadingId(null);
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadPurchaseOrder = async (id: string, fundRequestNumber: string) => {
+    try {
+      setDownloading({ id, type: 'po' });
+      // const blob = await generatePurchaseOrderDocument(id); //enable it for xlsx download
+      const blob = await generatePurchaseOrderPDF(id); // enable it for pdf download
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      // link.download = `Purchase_Order_${fundRequestNumber}_${new Date().toISOString().split('T')[0]}.xlsx`;  //enable it for xlsx download
+      link.download = `Purchase_Order_${fundRequestNumber}_${new Date().toISOString().split('T')[0]}.pdf`;  //enable it for pdf download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      // Store document metadata
+      await storeDocumentMetadata(id, 'purchase_order', link.download);
+      
+      showSuccess('Purchase Order downloaded successfully.');
+    } catch (error) {
+      console.error('Failed to download purchase order:', error);
+      showError('Failed to download purchase order. Please try again.');
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -280,16 +312,30 @@ const FundRequest: React.FC = () => {
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => handleDownload(fundRequest.id!, fundRequest.fund_request_type, fundRequest.fund_request_number)}
-                          disabled={downloadingId === fundRequest.id}
+                          disabled={downloading?.id === fundRequest.id && downloading?.type === 'fr'}
                           className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900 rounded transition-colors"
-                          title="Download Document"
+                          title="Download FR Document"
                         >
-                          {downloadingId === fundRequest.id ? (
+                          {downloading?.id === fundRequest.id && downloading?.type === 'fr' ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <Download className="w-4 h-4" />
                           )}
                         </button>
+                        {fundRequest.fund_request_type === 'Article' && (
+                          <button
+                            onClick={() => handleDownloadPurchaseOrder(fundRequest.id!, fundRequest.fund_request_number)}
+                            disabled={downloading?.id === fundRequest.id && downloading?.type === 'po'}
+                            className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900 rounded transition-colors"
+                            title="Download Purchase Order"
+                          >
+                            {downloading?.id === fundRequest.id && downloading?.type === 'po' ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
                         <button
                           onClick={() => handleEdit(fundRequest.id!)}
                           className="p-2 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"

@@ -8,6 +8,7 @@ interface ArticleRowProps {
   onRemove: () => void;
   showRemove?: boolean;
   originalCostPerUnit?: number; // Original cost from the article catalog
+  showArticleFRFields?: boolean; // If true, show cheque_in_favour and supplier_article_name instead of comments
 }
 
 const ArticleRow: React.FC<ArticleRowProps> = ({
@@ -16,6 +17,7 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
   onRemove,
   showRemove = true,
   originalCostPerUnit,
+  showArticleFRFields = false,
 }) => {
   // Cost is editable only if original cost is 0
   // Handle both number and string comparisons, and fallback to current value if original not provided
@@ -70,18 +72,33 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
     });
   };
 
+  const handleChequeInFavourChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onUpdate({
+      ...article,
+      cheque_in_favour: e.target.value,
+    });
+  };
+
+  const handleSupplierArticleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onUpdate({
+      ...article,
+      supplier_article_name: e.target.value,
+    });
+  };
+
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800">
-      <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+      {/* First Line */}
+      <div className="flex items-center gap-3 md:gap-6 flex-wrap">
         {/* Article Name */}
-        <div className="flex-1 min-w-[120px]">
+        <div className="flex-1 min-w-[150px]">
           <h4 className="font-medium text-gray-900 dark:text-white text-sm truncate">
             {article.articleName}
           </h4>
         </div>
 
         {/* Quantity */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">
             Qty:
           </label>
@@ -111,7 +128,7 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
         </div>
 
         {/* Cost Per Unit - Editable only if original cost is 0 */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">
             Cost:
           </label>
@@ -133,7 +150,7 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
         </div>
 
         {/* Total Value */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">
             Total:
           </label>
@@ -142,19 +159,21 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
           </div>
         </div>
 
-        {/* Comments */}
-        <div className="flex items-center gap-1 flex-1 min-w-[150px]">
-          <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
-            Comments:
-          </label>
-          <input
-            type="text"
-            value={article.comments}
-            onChange={handleCommentsChange}
-            className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-            placeholder="Comments"
-          />
-        </div>
+        {/* Comments (for non-Article FR contexts) */}
+        {!showArticleFRFields && (
+          <div className="flex items-center gap-1 flex-1 min-w-[150px]">
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
+              Comments:
+            </label>
+            <input
+              type="text"
+              value={article.comments || ''}
+              onChange={handleCommentsChange}
+              className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              placeholder="Comments"
+            />
+          </div>
+        )}
 
         {/* Remove Button */}
         {showRemove && (
@@ -167,6 +186,37 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
           </button>
         )}
       </div>
+
+      {/* Second Line - Supplier Article Name and Cheque in Favour (for Article FR) */}
+      {showArticleFRFields && (
+        <div className="flex items-center gap-2 md:gap-4 mt-2 flex-wrap">
+          <div className="flex items-center gap-1 flex-1 min-w-[150px]">
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
+              Supplier Article Name:
+            </label>
+            <input
+              type="text"
+              value={article.supplier_article_name || ''}
+              onChange={handleSupplierArticleNameChange}
+              className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              placeholder="Supplier Article Name"
+            />
+          </div>
+
+          <div className="flex items-center gap-1 flex-1 min-w-[120px]">
+            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
+              Cheque in Favour:
+            </label>
+            <input
+              type="text"
+              value={article.cheque_in_favour || ''}
+              onChange={handleChequeInFavourChange}
+              className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              placeholder="Cheque in Favour"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

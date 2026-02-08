@@ -64,10 +64,19 @@ const FundRequestForm: React.FC = () => {
 
   // Articles (for Article)
   const [selectedArticles, setSelectedArticles] = useState<ArticleSelection[]>([]);
+  const [gstNumber, setGstNumber] = useState<string>('');
+  const [supplierName, setSupplierName] = useState<string>('');
+  const [supplierAddress, setSupplierAddress] = useState<string>('');
+  const [supplierCity, setSupplierCity] = useState<string>('');
+  const [supplierState, setSupplierState] = useState<string>('');
+  const [supplierPincode, setSupplierPincode] = useState<string>('');
   const [articleDetails, setArticleDetails] = useState<Map<string, {
     beneficiary?: string;
     gst_no?: string;
-    price_including_gst: number;
+    price_including_gst?: number;
+    supplier_article_name?: string;
+    cheque_in_favour?: string;
+    cheque_sl_no?: string;
   }>>(new Map());
 
   // Validation errors
@@ -94,7 +103,24 @@ const FundRequestForm: React.FC = () => {
     if (fundRequestType === 'Aid') {
       loadExistingAidTypes();
     }
+    // Reload articles when fund request type changes to filter correctly
+    loadArticles();
   }, [fundRequestType]);
+
+  // Reload beneficiaries when aid_type changes
+  useEffect(() => {
+    if (fundRequestType === 'Aid' && formData.aid_type) {
+      // Clear cache and reload beneficiaries for all recipients
+      setBeneficiaryCache({});
+      recipients.forEach((_, index) => {
+        const recipient = recipients[index];
+        if (recipient?.beneficiaryType) {
+          loadBeneficiaries(recipient.beneficiaryType, index);
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.aid_type]);
 
   // Load used beneficiaries from saved fund requests
   const loadUsedBeneficiaries = async () => {
@@ -132,7 +158,14 @@ const FundRequestForm: React.FC = () => {
   const loadArticles = async () => {
     try {
       const data = await fetchAllArticles(true);
-      setArticles(data);
+      // Filter articles by item_type based on fund request type
+      if (fundRequestType === 'Article') {
+        // For Article fund requests, only show articles where item_type = 'Article'
+        setArticles(data.filter(a => a.item_type === 'Article'));
+      } else {
+        // For Aid fund requests, show all articles (existing behavior)
+        setArticles(data);
+      }
     } catch (error) {
       console.error('Failed to load articles:', error);
       showError('Failed to load articles.');
@@ -182,9 +215,10 @@ const FundRequestForm: React.FC = () => {
             articleId: a.article_id,
             articleName: a.article_name,
             quantity: a.quantity,
-            costPerUnit: a.unit_price,
+            costPerUnit: a.price_including_gst || a.unit_price, // Use price_including_gst as costPerUnit
             totalValue: a.value,
-            comments: '',
+            supplier_article_name: a.supplier_article_name,
+            cheque_in_favour: a.cheque_in_favour,
           }));
           setSelectedArticles(articleSelections);
           
@@ -194,9 +228,21 @@ const FundRequestForm: React.FC = () => {
               beneficiary: a.beneficiary,
               gst_no: a.gst_no,
               price_including_gst: a.price_including_gst,
+              supplier_article_name: a.supplier_article_name,
+              cheque_in_favour: a.cheque_in_favour,
+              cheque_sl_no: a.cheque_sl_no,
             });
           });
           setArticleDetails(detailsMap);
+        }
+        // Load GST number and supplier fields for Article type
+        if (data.fund_request_type === 'Article') {
+          if (data.gst_number) setGstNumber(data.gst_number);
+          if (data.supplier_name) setSupplierName(data.supplier_name);
+          if (data.supplier_address) setSupplierAddress(data.supplier_address);
+          if (data.supplier_city) setSupplierCity(data.supplier_city);
+          if (data.supplier_state) setSupplierState(data.supplier_state);
+          if (data.supplier_pincode) setSupplierPincode(data.supplier_pincode);
         }
       }
     } catch (error) {
@@ -208,8 +254,12 @@ const FundRequestForm: React.FC = () => {
   };
 
   const loadBeneficiaries = async (type: 'District' | 'Public' | 'Institutions' | 'Others', recipientIndex: number) => {
-    // Check cache first
-    if (beneficiaryCache[type]) {
+    // Get current aid_type for filtering
+    const currentAidType = formData.aid_type;
+    
+    // Check cache first (but only if no aid_type filter is applied)
+    if (beneficiaryCache[type] && !currentAidType) {
+      // Only use cache if no aid_type filter is applied
       // Filter out already selected beneficiaries (current session + saved)
       // Don't exclude current recipient's selection
       setRecipients(prev => {
@@ -257,21 +307,23 @@ const FundRequestForm: React.FC = () => {
       
       switch (type) {
         case 'District':
-          data = await fetchDistrictBeneficiariesForDropdown();
+          data = await fetchDistrictBeneficiariesForDropdown(currentAidType);
           break;
         case 'Public':
-          data = await fetchPublicBeneficiariesForDropdown();
+          data = await fetchPublicBeneficiariesForDropdown(currentAidType);
           break;
         case 'Institutions':
-          data = await fetchInstitutionBeneficiariesForDropdown();
+          data = await fetchInstitutionBeneficiariesForDropdown(currentAidType);
           break;
         case 'Others':
-          data = await fetchOthersBeneficiariesForDropdown();
+          data = await fetchOthersBeneficiariesForDropdown(currentAidType);
           break;
       }
 
-      // Update cache
-      setBeneficiaryCache(prev => ({ ...prev, [type]: data }));
+      // Update cache (only if no aid_type filter, otherwise cache is per aid_type)
+      if (!currentAidType) {
+        setBeneficiaryCache(prev => ({ ...prev, [type]: data }));
+      }
 
       // Filter out already selected beneficiaries (current session + saved)
       // Use functional update to get latest state
@@ -324,11 +376,9 @@ const FundRequestForm: React.FC = () => {
   };
 
   const calculateArticleTotals = () => {
-    let cumulative = 0;
     const updatedArticles = selectedArticles.map(article => {
-      const details = articleDetails.get(article.articleId) || { price_including_gst: 0 };
-      const value = article.quantity * details.price_including_gst;
-      cumulative += value;
+      // For Article fund requests, use costPerUnit as price_including_gst
+      const value = article.quantity * article.costPerUnit;
       return {
         ...article,
         totalValue: value,
@@ -355,9 +405,7 @@ const FundRequestForm: React.FC = () => {
         if (!recipient.beneficiaryType) {
           newErrors[`beneficiary_type_${index}`] = 'Beneficiary type is required';
         }
-        if (!recipient.beneficiary) {
-          newErrors[`beneficiary_${index}`] = 'Beneficiary is required';
-        }
+        // Beneficiary is optional - can be saved without it (useful when editing existing records)
         if (!recipient.name_of_beneficiary && !recipient.recipient_name) {
           newErrors[`name_of_beneficiary_${index}`] = 'Name of beneficiary is required';
         }
@@ -375,13 +423,33 @@ const FundRequestForm: React.FC = () => {
         // cheque_in_favour and cheque_sl_no are optional
       });
     } else {
+      // Validate GST number and supplier fields for Article type
+      if (!gstNumber || gstNumber.trim() === '') {
+        newErrors.gst_number = 'GST number is required';
+      }
+      if (!supplierName || supplierName.trim() === '') {
+        newErrors.supplier_name = 'Supplier name is required';
+      }
+      if (!supplierAddress || supplierAddress.trim() === '') {
+        newErrors.supplier_address = 'Supplier address is required';
+      }
+      if (!supplierCity || supplierCity.trim() === '') {
+        newErrors.supplier_city = 'Supplier city is required';
+      }
+      if (!supplierState || supplierState.trim() === '') {
+        newErrors.supplier_state = 'Supplier state is required';
+      }
+      if (!supplierPincode || supplierPincode.trim() === '') {
+        newErrors.supplier_pincode = 'Supplier pincode is required';
+      }
+      
       if (selectedArticles.length === 0) {
         newErrors.articles = 'At least one article is required';
       }
       
       selectedArticles.forEach((article, index) => {
-        const details = articleDetails.get(article.articleId);
-        if (!details || !details.price_including_gst || details.price_including_gst <= 0) {
+        // For Article fund requests, validate costPerUnit (which is price_including_gst)
+        if (!article.costPerUnit || article.costPerUnit <= 0) {
           newErrors[`price_${index}`] = 'Price including GST must be greater than 0';
         }
       });
@@ -406,6 +474,12 @@ const FundRequestForm: React.FC = () => {
         status: formData.status || 'draft',
         total_amount: formData.total_amount || 0,
         aid_type: fundRequestType === 'Aid' ? formData.aid_type : undefined,
+        gst_number: fundRequestType === 'Article' ? gstNumber : undefined,
+        supplier_name: fundRequestType === 'Article' ? supplierName : undefined,
+        supplier_address: fundRequestType === 'Article' ? supplierAddress : undefined,
+        supplier_city: fundRequestType === 'Article' ? supplierCity : undefined,
+        supplier_state: fundRequestType === 'Article' ? supplierState : undefined,
+        supplier_pincode: fundRequestType === 'Article' ? supplierPincode : undefined,
         notes: formData.notes,
       };
 
@@ -449,25 +523,24 @@ const FundRequestForm: React.FC = () => {
         }
       } else {
         const articlesData = selectedArticles.map((article, index) => {
+          // Use values from ArticleSelection (cheque_in_favour, supplier_article_name)
+          // and sync with articleDetails for price_including_gst
           const details = articleDetails.get(article.articleId) || { price_including_gst: 0 };
-          let cumulative = 0;
-          for (let i = 0; i <= index; i++) {
-            const art = selectedArticles[i];
-            const det = articleDetails.get(art.articleId) || { price_including_gst: 0 };
-            cumulative += art.quantity * det.price_including_gst;
-          }
           
           return {
             article_id: article.articleId,
-            sl_no: index + 1,
-            beneficiary: details.beneficiary,
+            sl_no: index + 1, // Auto-generate SL.NO
+            beneficiary: 'Dist & Public', // Auto-set beneficiary
             article_name: article.articleName,
-            gst_no: details.gst_no,
+            gst_no: gstNumber, // Use GST number from top field
             quantity: article.quantity,
             unit_price: article.costPerUnit,
-            price_including_gst: details.price_including_gst,
+            price_including_gst: article.costPerUnit, // Use costPerUnit as price_including_gst
             value: article.totalValue,
-            cumulative: cumulative,
+            cumulative: 0, // Remove cumulative calculation
+            supplier_article_name: article.supplier_article_name || details.supplier_article_name,
+            cheque_in_favour: article.cheque_in_favour || details.cheque_in_favour,
+            cheque_sl_no: details.cheque_sl_no, // Still from articleDetails (not in ArticleRow yet)
           };
         });
 
@@ -614,24 +687,23 @@ const FundRequestForm: React.FC = () => {
     }
   };
 
-  const handleArticleDetailsChange = (articleId: string, field: string, value: any) => {
-    const updated = new Map(articleDetails);
-    const current = updated.get(articleId) || { price_including_gst: 0 };
-    updated.set(articleId, { ...current, [field]: value });
-    setArticleDetails(updated);
-  };
 
   const handleArticlesChange = (newArticles: ArticleSelection[]) => {
     setSelectedArticles(newArticles);
-    // Initialize details for new articles
+    // Initialize details for new articles and sync cheque_in_favour and supplier_article_name
     const updatedDetails = new Map(articleDetails);
     newArticles.forEach(article => {
-      if (!updatedDetails.has(article.articleId)) {
-        const articleRecord = articles.find(a => a.id === article.articleId);
-        updatedDetails.set(article.articleId, {
-          price_including_gst: articleRecord?.cost_per_unit || 0,
-        });
-      }
+      const existing = updatedDetails.get(article.articleId) || {
+        price_including_gst: 0,
+        cheque_in_favour: undefined,
+        supplier_article_name: undefined,
+      };
+      updatedDetails.set(article.articleId, {
+        ...existing,
+        price_including_gst: article.costPerUnit || existing.price_including_gst || 0,
+        cheque_in_favour: article.cheque_in_favour || existing.cheque_in_favour,
+        supplier_article_name: article.supplier_article_name || existing.supplier_article_name,
+      });
     });
     setArticleDetails(updatedDetails);
   };
@@ -861,7 +933,7 @@ const FundRequestForm: React.FC = () => {
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                            Beneficiary <span className="text-red-500">*</span>
+                            Beneficiary
                           </label>
                           {recipient.beneficiary && (
                             <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
@@ -1052,6 +1124,113 @@ const FundRequestForm: React.FC = () => {
         {/* Article Form */}
         {fundRequestType === 'Article' && (
           <div className="space-y-6">
+            {/* Supplier Information Section */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Supplier Information</h3>
+              
+              {/* Supplier Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Supplier Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Enter supplier name"
+                />
+                {errors.supplier_name && (
+                  <p className="mt-1 text-sm text-red-500">{errors.supplier_name}</p>
+                )}
+              </div>
+
+              {/* GST NUMBER */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  GST Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={gstNumber}
+                  onChange={(e) => setGstNumber(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Enter GST number"
+                />
+                {errors.gst_number && (
+                  <p className="mt-1 text-sm text-red-500">{errors.gst_number}</p>
+                )}
+              </div>
+
+              {/* Supplier Address */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Address <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={supplierAddress}
+                  onChange={(e) => setSupplierAddress(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Enter supplier address"
+                />
+                {errors.supplier_address && (
+                  <p className="mt-1 text-sm text-red-500">{errors.supplier_address}</p>
+                )}
+              </div>
+
+              {/* City, State, Pincode in a row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    City <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierCity}
+                    onChange={(e) => setSupplierCity(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="Enter city"
+                  />
+                  {errors.supplier_city && (
+                    <p className="mt-1 text-sm text-red-500">{errors.supplier_city}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    State <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierState}
+                    onChange={(e) => setSupplierState(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="Enter state"
+                  />
+                  {errors.supplier_state && (
+                    <p className="mt-1 text-sm text-red-500">{errors.supplier_state}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Pincode <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierPincode}
+                    onChange={(e) => setSupplierPincode(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                    placeholder="Enter pincode"
+                  />
+                  {errors.supplier_pincode && (
+                    <p className="mt-1 text-sm text-red-500">{errors.supplier_pincode}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Articles <span className="text-red-500">*</span>
@@ -1070,126 +1249,13 @@ const FundRequestForm: React.FC = () => {
                 selectedArticles={selectedArticles}
                 onArticlesChange={handleArticlesChange}
                 required
+                showArticleFRFields={true}
               />
               
               {selectedArticles.length > 0 && (
                 <div className="mt-4 space-y-3">
-                  {selectedArticles.map((article, index) => {
-                    const details = articleDetails.get(article.articleId) || { price_including_gst: 0 };
-                    let cumulative = 0;
-                    for (let i = 0; i <= index; i++) {
-                      const art = selectedArticles[i];
-                      const det = articleDetails.get(art.articleId) || { price_including_gst: 0 };
-                      cumulative += art.quantity * det.price_including_gst;
-                    }
-                    
-                    return (
-                      <div key={article.articleId} className="p-4 border border-gray-300 dark:border-gray-600 rounded-lg">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              SL.NO
-                            </label>
-                            <input
-                              type="number"
-                              value={index + 1}
-                              readOnly
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              BENIFICIARY
-                            </label>
-                            <input
-                              type="text"
-                              value={details.beneficiary || ''}
-                              onChange={(e) => handleArticleDetailsChange(article.articleId, 'beneficiary', e.target.value)}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              ARTICLE NAME
-                            </label>
-                            <input
-                              type="text"
-                              value={article.articleName}
-                              readOnly
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              GST NO.
-                            </label>
-                            <input
-                              type="text"
-                              value={details.gst_no || ''}
-                              onChange={(e) => handleArticleDetailsChange(article.articleId, 'gst_no', e.target.value)}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              QTY
-                            </label>
-                            <input
-                              type="number"
-                              value={article.quantity}
-                              readOnly
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              PRICE INCLUDING GST <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                              type="number"
-                              value={details.price_including_gst || ''}
-                              onChange={(e) => {
-                                const price = parseFloat(e.target.value) || 0;
-                                handleArticleDetailsChange(article.articleId, 'price_including_gst', price);
-                              }}
-                              min="0"
-                              step="0.01"
-                              className={`w-full px-2 py-1 text-sm border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
-                                errors[`price_${index}`] ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-                              }`}
-                            />
-                            {errors[`price_${index}`] && (
-                              <p className="mt-1 text-xs text-red-500">{errors[`price_${index}`]}</p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              VALUE
-                            </label>
-                            <input
-                              type="text"
-                              value={`${CURRENCY_SYMBOL} ${article.totalValue.toLocaleString()}`}
-                              readOnly
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                              CUMULATIVE
-                            </label>
-                            <input
-                              type="text"
-                              value={`${CURRENCY_SYMBOL} ${cumulative.toLocaleString()}`}
-                              readOnly
-                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 text-gray-900 dark:text-white"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  
-                  <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  {/* Grand Total */}
+                  <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">GRAND TOTAL:</span>
                       <span className="text-lg font-bold text-gray-900 dark:text-white">
