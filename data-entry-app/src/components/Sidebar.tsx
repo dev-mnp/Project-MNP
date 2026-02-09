@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { 
   Sidebar as ProSidebar, 
   Menu, 
@@ -29,10 +29,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   onMobileClose 
 }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { isAdmin, hasPermission } = useRBAC();
   const [collapsed, setCollapsed] = useState(false);
 
-  const handleMenuItemClick = () => {
+  const handleMenuItemClick = (path: string) => {
+    navigate(path);
     if (onMobileClose && window.innerWidth < 768) {
       onMobileClose();
     }
@@ -164,18 +166,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                     className={`relative ${collapsed ? 'group' : ''}`}
                     title={collapsed ? item.label : ''}
                   >
-                    <Link 
-                      to={item.path} 
-                      style={{ textDecoration: 'none' }}
-                      onClick={handleMenuItemClick}
+                    <MenuItem
+                      icon={<Icon className="w-5 h-5" />}
+                      active={isActive}
+                      onClick={() => handleMenuItemClick(item.path)}
                     >
-                      <MenuItem
-                        icon={<Icon className="w-5 h-5" />}
-                        active={isActive}
-                      >
-                        {!collapsed && item.label}
-                      </MenuItem>
-                    </Link>
+                      {!collapsed && item.label}
+                    </MenuItem>
                     {collapsed && (
                       <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white dark:text-gray-100 text-sm rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-50 whitespace-nowrap">
                         {item.label}

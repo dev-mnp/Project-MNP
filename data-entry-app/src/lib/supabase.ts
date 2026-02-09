@@ -18,6 +18,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+
 /**
  * Helper function to wrap Supabase queries with timeout and retry logic
  * @param queryFn - The Supabase query function to execute
@@ -29,6 +30,9 @@ export async function withTimeoutAndRetry<T>(
   maxRetries: number = 1,
   timeoutMs: number = 10000
 ): Promise<T> {
+  // Supabase client with persistSession: true automatically uses session from localStorage
+  // No need to verify session - just proceed with the API call
+  
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

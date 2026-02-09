@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Warehouse, RefreshCw, Plus, X, Save, Edit2, Trash2, Download } from 'lucide-react';
 import { getConsolidatedOrdersWithTracking, type ConsolidatedArticle } from '../services/orderConsolidationService';
 import { createOrderEntry, updateOrderEntry, type OrderEntry, type OrderEntryWithArticle } from '../services/orderService';
@@ -10,10 +10,20 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 
 const InventoryManagement: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isRestoringSession } = useAuth();
   const { showError, showSuccess, showWarning } = useNotifications();
+  
+  // Log when component mounts
+  useEffect(() => {
+    console.debug('InventoryManagement: Component mounted');
+    return () => {
+      console.debug('InventoryManagement: Component unmounting');
+    };
+  }, []);
   const [consolidatedOrders, setConsolidatedOrders] = useState<ConsolidatedArticle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -39,21 +49,91 @@ const InventoryManagement: React.FC = () => {
     total_amount: 0,
   });
 
-  useEffect(() => {
-    loadConsolidatedOrders();
-  }, []);
+  // Track loading state to prevent duplicate fetches
+  const isLoadingRef = useRef(false);
 
-  const loadConsolidatedOrders = async () => {
-    try {
-      setLoading(true);
-      const data = await getConsolidatedOrdersWithTracking();
-      setConsolidatedOrders(data.articles);
-    } catch (error) {
-      console.error('Failed to load consolidated orders:', error);
-      alert('Failed to load consolidated orders. Please try again.');
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!isAuthenticated || isRestoringSession) {
+      return;
     }
+    
+    // Prevent duplicate calls
+    if (isLoadingRef.current) {
+      return;
+    }
+    
+    console.debug('InventoryManagement: Both conditions met, calling loadConsolidatedOrders...');
+    loadConsolidatedOrders();
+    
+    return () => {
+      // Reset loading flag on unmount so remount can fetch again
+      isLoadingRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, isRestoringSession]); // loadConsolidatedOrders is stable, no need to include it
+
+  const loadConsolidatedOrders = async (isRetry: boolean = false) => {
+    // Prevent duplicate fetches
+    if (isLoadingRef.current) {
+      console.debug('InventoryManagement: loadConsolidatedOrders already in progress, skipping');
+      return;
+    }
+    
+    isLoadingRef.current = true;
+    const fetchStartTime = Date.now();
+    
+    // Add timeout protection at component level (30 seconds)
+    const timeoutId = setTimeout(() => {
+      if (isLoadingRef.current) {
+        isLoadingRef.current = false;
+        const fetchDuration = Date.now() - fetchStartTime;
+        console.error(`InventoryManagement: loadConsolidatedOrders timed out after ${fetchDuration}ms`);
+        if (isMountedRef.current) {
+          setLoading(false);
+          setError('Request timed out. Please check your connection and try again.');
+        }
+      }
+    }, 30000);
+    
+    try {
+      if (isRetry) {
+        console.debug(`InventoryManagement: Retrying loadConsolidatedOrders (attempt ${retryCount + 1})...`);
+      } else {
+        console.debug('InventoryManagement: loadConsolidatedOrders called, starting fetch...');
+      }
+      setLoading(true);
+      setError(null);
+      
+      const data = await getConsolidatedOrdersWithTracking();
+      clearTimeout(timeoutId);
+      
+      const fetchDuration = Date.now() - fetchStartTime;
+      console.debug(`InventoryManagement: Consolidated orders fetched successfully in ${fetchDuration}ms, count: ${data?.articles?.length || 0}`);
+      setConsolidatedOrders(data.articles);
+      setRetryCount(0); // Reset retry count on success
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      const fetchDuration = Date.now() - fetchStartTime;
+      console.error(`InventoryManagement: Failed to load consolidated orders after ${fetchDuration}ms:`, error);
+      
+      const errorMessage = error?.message || 'Failed to load consolidated orders. Please try again.';
+      setError(errorMessage);
+      
+      // Don't show alert if it's a timeout (already handled)
+      if (!errorMessage.includes('timeout')) {
+        alert(errorMessage);
+      }
+    } finally {
+      isLoadingRef.current = false;
+      setLoading(false);
+      const fetchDuration = Date.now() - fetchStartTime;
+      console.debug(`InventoryManagement: loadConsolidatedOrders completed in ${fetchDuration}ms`);
+    }
+  };
+  
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+    loadConsolidatedOrders(true);
   };
 
   const toggleRowExpansion = (articleId: string) => {
@@ -292,6 +372,16 @@ const InventoryManagement: React.FC = () => {
           <div className="text-center py-12 text-gray-500 dark:text-gray-400">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400 mb-2"></div>
             <p>Loading consolidated orders...</p>
+          </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <div className="text-red-600 dark:text-red-400 mb-4">{error}</div>
+            <button
+              onClick={handleRetry}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Retry
+            </button>
           </div>
         ) : filteredArticles.length === 0 ? (
           <div className="text-center py-12 text-gray-500 dark:text-gray-400">

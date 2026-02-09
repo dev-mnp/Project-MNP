@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save, Download, Loader2 } from 'lucide-react';
 import {
   fetchAllArticles,
@@ -14,8 +14,16 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 
 const ArticleManagement: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isRestoringSession } = useAuth();
   const { showError, showSuccess, showWarning } = useNotifications();
+  
+  // Log when component mounts
+  useEffect(() => {
+    console.debug('ArticleManagement: Component mounted');
+    return () => {
+      console.debug('ArticleManagement: Component unmounting');
+    };
+  }, []);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
   const [filteredArticles, setFilteredArticles] = useState<ArticleRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,28 +61,100 @@ const ArticleManagement: React.FC = () => {
 
   // Save loading state
   const [isSaving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  
+  // Track loading state to prevent duplicate fetches
+  const isLoadingRef = useRef(false);
 
-  // Load articles on component mount
+  // Load articles on component mount - only when authenticated and not restoring
   useEffect(() => {
+    if (!isAuthenticated || isRestoringSession) {
+      return;
+    }
+    
+    // Prevent duplicate calls
+    if (isLoadingRef.current) {
+      return;
+    }
+    
+    console.debug('ArticleManagement: Both conditions met, calling loadArticles...');
     loadArticles();
-  }, []);
+    
+    return () => {
+      // Reset loading flag on unmount so remount can fetch again
+      isLoadingRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, isRestoringSession]); // loadArticles is stable, no need to include it
 
   // Apply filters when articles or filters change
   useEffect(() => {
     applyFilters();
   }, [articles, searchQuery, itemTypeFilter, categoryFilter, statusFilter]);
 
-  const loadArticles = async () => {
-    try {
-      setLoading(true);
-      const data = await fetchAllArticles(true);
-      setArticles(data);
-    } catch (error) {
-      console.error('Failed to load articles:', error);
-      showError('Failed to load articles. Please try again.');
-    } finally {
-      setLoading(false);
+  const loadArticles = async (isRetry: boolean = false) => {
+    // Prevent duplicate fetches
+    if (isLoadingRef.current) {
+      console.debug('ArticleManagement: loadArticles already in progress, skipping');
+      return;
     }
+    
+    isLoadingRef.current = true;
+    const fetchStartTime = Date.now();
+    
+    // Add timeout protection at component level (30 seconds)
+    const timeoutId = setTimeout(() => {
+      if (isLoadingRef.current) {
+        isLoadingRef.current = false;
+        const fetchDuration = Date.now() - fetchStartTime;
+        console.error(`ArticleManagement: loadArticles timed out after ${fetchDuration}ms`);
+        if (isMountedRef.current) {
+          setLoading(false);
+          setError('Request timed out. Please check your connection and try again.');
+        }
+      }
+    }, 30000);
+    
+    try {
+      if (isRetry) {
+        console.debug(`ArticleManagement: Retrying loadArticles (attempt ${retryCount + 1})...`);
+      } else {
+        console.debug('ArticleManagement: loadArticles called, starting fetch...');
+      }
+      setLoading(true);
+      setError(null);
+      
+      const data = await fetchAllArticles(true);
+      clearTimeout(timeoutId);
+      
+      const fetchDuration = Date.now() - fetchStartTime;
+      console.debug(`ArticleManagement: Articles fetched successfully in ${fetchDuration}ms, count: ${data?.length || 0}`);
+      setArticles(data);
+      setRetryCount(0); // Reset retry count on success
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      const fetchDuration = Date.now() - fetchStartTime;
+      console.error(`ArticleManagement: Failed to load articles after ${fetchDuration}ms:`, error);
+      
+      const errorMessage = error?.message || 'Failed to load articles. Please try again.';
+      setError(errorMessage);
+      
+      // Don't show notification if it's a timeout (already handled)
+      if (!errorMessage.includes('timeout')) {
+        showError(errorMessage);
+      }
+    } finally {
+      isLoadingRef.current = false;
+      setLoading(false);
+      const fetchDuration = Date.now() - fetchStartTime;
+      console.debug(`ArticleManagement: loadArticles completed in ${fetchDuration}ms`);
+    }
+  };
+  
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+    loadArticles(true);
   };
 
   const applyFilters = () => {
@@ -509,7 +589,18 @@ const ArticleManagement: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
             {loading ? (
               <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                <Loader2 className="animate-spin h-8 w-8 mx-auto mb-4" />
                 Loading articles...
+              </div>
+            ) : error ? (
+              <div className="text-center py-12">
+                <div className="text-red-600 dark:text-red-400 mb-4">{error}</div>
+                <button
+                  onClick={handleRetry}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Retry
+                </button>
               </div>
             ) : filteredArticles.length === 0 ? (
               <div className="text-center py-12 text-gray-500 dark:text-gray-400">

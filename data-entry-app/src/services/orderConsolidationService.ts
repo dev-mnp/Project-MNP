@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, withTimeoutAndRetry } from '../lib/supabase';
 import { fetchDistrictBeneficiaryEntriesGrouped } from './districtBeneficiaryService';
 import { fetchInstitutionBeneficiaryEntriesGrouped } from './institutionBeneficiaryService';
 import { fetchAllArticles } from './articlesService';
@@ -33,6 +33,9 @@ export interface OrderConsolidation {
  * Fetch all entries from all beneficiary types and consolidate articles
  */
 export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
+  const startTime = Date.now();
+  console.debug('getConsolidatedOrders: Starting consolidation');
+  
   try {
     // Fetch all articles to get article names
     const allArticles = await fetchAllArticles(true);
@@ -48,26 +51,44 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
     const districtRecords = await fetchDistrictBeneficiaryEntriesGrouped();
     
     // Fetch public entries from database
-    const { data: publicData, error: publicError } = await supabase
-      .from('public_beneficiary_entries')
-      .select(`
-        id,
-        application_number,
-        name,
-        aadhar_number,
-        is_handicapped,
-        address,
-        mobile,
-        article_id,
-        quantity,
-        total_amount,
-        notes,
-        status,
-        created_at
-      `);
-
-    if (publicError) {
-      console.error('Failed to fetch public entries:', publicError);
+    const publicStartTime = Date.now();
+    console.debug('getConsolidatedOrders: Fetching public entries');
+    let publicData = null;
+    let publicError = null;
+    
+    try {
+      const result = await withTimeoutAndRetry(async () => {
+        const { data, error } = await supabase
+          .from('public_beneficiary_entries')
+          .select(`
+            id,
+            application_number,
+            name,
+            aadhar_number,
+            is_handicapped,
+            address,
+            mobile,
+            article_id,
+            quantity,
+            total_amount,
+            notes,
+            status,
+            created_at
+          `);
+        
+        if (error) {
+          throw error;
+        }
+        return data;
+      }, 1, 15000); // 1 retry, 15 second timeout
+      
+      publicData = result;
+      const duration = Date.now() - publicStartTime;
+      console.debug(`getConsolidatedOrders: Public entries fetched in ${duration}ms, count: ${publicData?.length || 0}`);
+    } catch (error: any) {
+      publicError = error;
+      const duration = Date.now() - publicStartTime;
+      console.error(`getConsolidatedOrders: Failed to fetch public entries after ${duration}ms:`, publicError);
     }
 
     // Transform public entries to MasterEntryRecord format
@@ -179,25 +200,33 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
     const totalArticles = articles.length;
     const totalValue = articles.reduce((sum, article) => sum + article.totalValue, 0);
     
-    return {
+    const duration = Date.now() - startTime;
+    const result = {
       articles,
       totalArticles,
       totalValue,
     };
+    console.debug(`getConsolidatedOrders: Consolidation completed in ${duration}ms, articles: ${result.articles.length}, totalValue: ${totalValue}`);
+    return result;
   } catch (error) {
-    console.error('Failed to consolidate orders:', error);
+    const duration = Date.now() - startTime;
+    console.error(`getConsolidatedOrders: Failed after ${duration}ms:`, error);
     throw error;
   }
 };
 
 // Update the function to include order data
 export const getConsolidatedOrdersWithTracking = async (): Promise<OrderConsolidation> => {
+  const startTime = Date.now();
+  console.debug('getConsolidatedOrdersWithTracking: Starting fetch with tracking');
+  
   try {
     // First get the consolidated orders
     const consolidation = await getConsolidatedOrders();
     
     // Get order summaries for all articles
     const articleIds = consolidation.articles.map(a => a.articleId);
+    console.debug(`getConsolidatedOrdersWithTracking: Fetching order summaries for ${articleIds.length} articles`);
     const orderSummaries = await getOrderSummaryByArticle(articleIds);
     
     // Merge order data with consolidated articles
@@ -212,13 +241,17 @@ export const getConsolidatedOrdersWithTracking = async (): Promise<OrderConsolid
       };
     });
     
+    const duration = Date.now() - startTime;
+    console.debug(`getConsolidatedOrdersWithTracking: Completed in ${duration}ms, articles: ${articlesWithOrders.length}`);
+    
     return {
       articles: articlesWithOrders,
       totalArticles: consolidation.totalArticles,
       totalValue: consolidation.totalValue,
     };
   } catch (error) {
-    console.error('Failed to consolidate orders with tracking:', error);
+    const duration = Date.now() - startTime;
+    console.error(`getConsolidatedOrdersWithTracking: Failed after ${duration}ms:`, error);
     throw error;
   }
 };

@@ -71,7 +71,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       if (onLogin) {
         await onLogin(loginData.email, loginData.password);
       } else {
-        await login(authUser);
+        // Pass the session from signInWithPassword to login function
+        await login(authUser, data.session);
       }
 
       // Log login action
@@ -80,6 +81,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         role: authUser.role,
       });
 
+      // Navigate - ProtectedRoute will handle waiting for session restoration if needed
       navigate('/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);

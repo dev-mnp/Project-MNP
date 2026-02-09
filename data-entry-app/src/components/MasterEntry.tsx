@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, X, Save, Trash2, Pencil, Download, Loader2, Info } from 'lucide-react';
 import {
   institutionTypes,
@@ -37,7 +37,7 @@ import { CURRENCY_SYMBOL } from '../constants/currency';
 type BeneficiaryType = 'district' | 'public' | 'institutions';
 
 const MasterEntry: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isRestoringSession } = useAuth();
   const { canDelete } = useRBAC();
   const { showError, showSuccess, showWarning } = useNotifications();
   const [beneficiaryTypeFilter, setBeneficiaryTypeFilter] = useState<BeneficiaryType>('district');
@@ -90,47 +90,108 @@ const MasterEntry: React.FC = () => {
 
   // Save loading state
   const [isSaving, setSaving] = useState(false);
+  
+  // Track loading state to prevent duplicate calls
+  const isLoadingArticlesRef = useRef(false);
+  const isLoadingDistrictsRef = useRef(false);
 
-  // Fetch articles from database on component mount
+  // Fetch articles from database on component mount - only when authenticated and not restoring
   useEffect(() => {
+    if (!isAuthenticated || isRestoringSession) {
+      return;
+    }
+    
+    // Prevent duplicate calls
+    if (isLoadingArticlesRef.current) {
+      return;
+    }
+    
+    isLoadingArticlesRef.current = true;
+    const loadStartTime = Date.now();
+    console.debug('MasterEntry: Starting to load articles');
+    
     const loadArticles = async () => {
       try {
         setLoadingArticles(true);
         const fetchedArticles = await fetchArticles();
+        const loadDuration = Date.now() - loadStartTime;
+        console.debug(`MasterEntry: Articles loaded in ${loadDuration}ms, count: ${fetchedArticles?.length || 0}`);
         setArticles(fetchedArticles);
       } catch (error) {
-        console.error('Failed to load articles:', error);
-        // Fallback to empty array on error
+        const loadDuration = Date.now() - loadStartTime;
+        console.error(`MasterEntry: Failed to load articles after ${loadDuration}ms:`, error);
         setArticles([]);
       } finally {
+        isLoadingArticlesRef.current = false;
         setLoadingArticles(false);
       }
     };
 
     loadArticles();
-  }, []);
+    
+    return () => {
+      // Reset loading flag on unmount so remount can fetch again
+      isLoadingArticlesRef.current = false;
+    };
+  }, [isAuthenticated, isRestoringSession]);
 
-  // Fetch districts from database on component mount
+  // Fetch districts from database on component mount - only when authenticated and not restoring
   useEffect(() => {
+    if (!isAuthenticated || isRestoringSession) {
+      return;
+    }
+    
+    // Prevent duplicate calls
+    if (isLoadingDistrictsRef.current) {
+      return;
+    }
+    
+    isLoadingDistrictsRef.current = true;
+    const loadStartTime = Date.now();
+    console.debug('MasterEntry: Starting to load districts');
+    
     const loadDistricts = async () => {
       try {
         setLoadingDistricts(true);
         const fetchedDistricts = await fetchDistricts();
+        const loadDuration = Date.now() - loadStartTime;
+        console.debug(`MasterEntry: Districts loaded in ${loadDuration}ms, count: ${fetchedDistricts?.length || 0}`);
         setDistricts(fetchedDistricts);
       } catch (error) {
-        console.error('Failed to load districts:', error);
-        // Fallback to empty array on error
+        const loadDuration = Date.now() - loadStartTime;
+        console.error(`MasterEntry: Failed to load districts after ${loadDuration}ms:`, error);
         setDistricts([]);
       } finally {
+        isLoadingDistrictsRef.current = false;
         setLoadingDistricts(false);
       }
     };
 
     loadDistricts();
-  }, []);
+    
+    return () => {
+      // Reset loading flag on unmount so remount can fetch again
+      isLoadingDistrictsRef.current = false;
+    };
+  }, [isAuthenticated, isRestoringSession]);
 
-  // Load records when filter changes
+  // Load records when filter changes - only when authenticated and not restoring
+  const isLoadingRecordsRef = useRef(false);
+  
   useEffect(() => {
+    if (!isAuthenticated || isRestoringSession) {
+      return;
+    }
+    
+    // Prevent duplicate calls
+    if (isLoadingRecordsRef.current) {
+      return;
+    }
+    
+    isLoadingRecordsRef.current = true;
+    const loadStartTime = Date.now();
+    console.debug(`MasterEntry: Starting to load records for filter: ${beneficiaryTypeFilter}`);
+    
     const loadRecords = async () => {
       try {
         setLoadingRecords(true);
@@ -138,6 +199,8 @@ const MasterEntry: React.FC = () => {
         if (beneficiaryTypeFilter === 'district') {
           // Fetch from database for district type
           const dbRecords = await fetchDistrictBeneficiaryEntriesGrouped();
+          const loadDuration = Date.now() - loadStartTime;
+          console.debug(`MasterEntry: District records loaded in ${loadDuration}ms, count: ${dbRecords?.length || 0}`);
           setRecords(dbRecords);
         } else if (beneficiaryTypeFilter === 'public') {
           // Fetch from database for public type
@@ -180,25 +243,38 @@ const MasterEntry: React.FC = () => {
             comments: entry.notes || '',
           }));
 
+          const loadDuration = Date.now() - loadStartTime;
+          console.debug(`MasterEntry: Public records loaded in ${loadDuration}ms, count: ${publicRecords?.length || 0}`);
           setRecords(publicRecords);
         } else if (beneficiaryTypeFilter === 'institutions') {
           // Institutions: No DB table yet - show empty array
+          const loadDuration = Date.now() - loadStartTime;
+          console.debug(`MasterEntry: Institutions filter selected (no data) in ${loadDuration}ms`);
           setRecords([]);
           showWarning('Institutions functionality requires a database table. Please contact the administrator.');
         }
       } catch (error) {
-        console.error('Failed to load records:', error);
+        const loadDuration = Date.now() - loadStartTime;
+        console.error(`MasterEntry: Failed to load records after ${loadDuration}ms:`, error);
         setRecords([]);
         if (beneficiaryTypeFilter === 'public') {
           showError('Failed to load public beneficiary entries. Please try again.');
         }
       } finally {
+        isLoadingRecordsRef.current = false;
         setLoadingRecords(false);
+        const loadDuration = Date.now() - loadStartTime;
+        console.debug(`MasterEntry: loadRecords completed in ${loadDuration}ms`);
       }
     };
 
     loadRecords();
-  }, [beneficiaryTypeFilter]);
+    
+    return () => {
+      // Reset loading flag on unmount so remount can fetch again
+      isLoadingRecordsRef.current = false;
+    };
+  }, [beneficiaryTypeFilter, isAuthenticated, isRestoringSession]);
 
 
   // Helper function to get article by ID

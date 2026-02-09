@@ -9,6 +9,7 @@ import {
 import { generateFundRequestDocument, generatePurchaseOrderPDF, storeDocumentMetadata, ENABLE_XLSX_GENERATION } from '../services/documentGenerationService';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useRBAC } from '../contexts/RBACContext';
+import { useAuth } from '../contexts/AuthContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -16,6 +17,7 @@ const FundRequest: React.FC = () => {
   const navigate = useNavigate();
   const { showError, showSuccess } = useNotifications();
   const { canDelete } = useRBAC();
+  const { isAuthenticated, isRestoringSession } = useAuth();
   const [fundRequests, setFundRequests] = useState<FundRequestType[]>([]);
   const [filteredFundRequests, setFilteredFundRequests] = useState<FundRequestType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,9 +46,13 @@ const FundRequest: React.FC = () => {
   // Download loading state - track both ID and type (fr or po)
   const [downloading, setDownloading] = useState<{ id: string; type: 'fr' | 'po' } | null>(null);
 
+  // Only load data when authenticated and not restoring
   useEffect(() => {
-    loadFundRequests();
-  }, []);
+    if (isAuthenticated && !isRestoringSession) {
+      console.debug('FundRequest: Loading fund requests...');
+      loadFundRequests();
+    }
+  }, [isAuthenticated, isRestoringSession]);
 
   useEffect(() => {
     applyFilters();

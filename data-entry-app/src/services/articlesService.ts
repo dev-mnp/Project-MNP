@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase';
+import { supabase, withTimeoutAndRetry } from '../lib/supabase';
 import type { Article } from '../data/mockData';
 import { logAction } from './auditLogService';
 
@@ -17,24 +17,34 @@ export interface ArticleRecord {
  * Fetch all articles from the database (including inactive)
  */
 export const fetchAllArticles = async (includeInactive: boolean = true): Promise<ArticleRecord[]> => {
+  const startTime = Date.now();
+  console.debug('fetchAllArticles: Starting fetch, includeInactive:', includeInactive);
+  
   try {
-    let query = supabase
-      .from('articles')
-      .select('*')
-      .order('article_name', { ascending: true });
+    const result = await withTimeoutAndRetry(async () => {
+      let query = supabase
+        .from('articles')
+        .select('*')
+        .order('article_name', { ascending: true });
 
-    if (!includeInactive) {
-      query = query.eq('is_active', true);
-    }
+      if (!includeInactive) {
+        query = query.eq('is_active', true);
+      }
 
-    const { data, error } = await query;
+      const { data, error } = await query;
 
-    if (error) {
-      console.error('Error fetching articles:', error);
-      throw error;
-    }
+      if (error) {
+        console.error('fetchAllArticles: Supabase query error:', error);
+        throw error;
+      }
 
-    return (data || []).map((record) => ({
+      return data;
+    }, 1, 15000); // 1 retry, 15 second timeout
+
+    const duration = Date.now() - startTime;
+    console.debug(`fetchAllArticles: Fetch completed in ${duration}ms, count: ${result?.length || 0}`);
+
+    return (result || []).map((record) => ({
       id: record.id,
       article_name: record.article_name,
       cost_per_unit: parseFloat(record.cost_per_unit) || 0,
@@ -45,7 +55,8 @@ export const fetchAllArticles = async (includeInactive: boolean = true): Promise
       updated_at: record.updated_at,
     }));
   } catch (error) {
-    console.error('Failed to fetch articles:', error);
+    const duration = Date.now() - startTime;
+    console.error(`fetchAllArticles: Failed after ${duration}ms:`, error);
     throw error;
   }
 };
@@ -54,20 +65,30 @@ export const fetchAllArticles = async (includeInactive: boolean = true): Promise
  * Fetch all active articles from the database
  */
 export const fetchArticles = async (): Promise<Article[]> => {
+  const startTime = Date.now();
+  console.debug('fetchArticles: Starting fetch');
+  
   try {
-    const { data, error } = await supabase
-      .from('articles')
-      .select('*')
-      .eq('is_active', true)
-      .order('article_name', { ascending: true });
+    const result = await withTimeoutAndRetry(async () => {
+      const { data, error } = await supabase
+        .from('articles')
+        .select('*')
+        .eq('is_active', true)
+        .order('article_name', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching articles:', error);
-      throw error;
-    }
+      if (error) {
+        console.error('fetchArticles: Supabase query error:', error);
+        throw error;
+      }
+
+      return data;
+    }, 1, 15000); // 1 retry, 15 second timeout
+
+    const duration = Date.now() - startTime;
+    console.debug(`fetchArticles: Fetch completed in ${duration}ms, count: ${result?.length || 0}`);
 
     // Transform database records to Article interface
-    return (data || []).map((record) => ({
+    return (result || []).map((record) => ({
       id: record.id,
       name: record.article_name,
       costPerUnit: parseFloat(record.cost_per_unit) || 0,
@@ -75,7 +96,8 @@ export const fetchArticles = async (): Promise<Article[]> => {
       category: record.category || undefined,
     }));
   } catch (error) {
-    console.error('Failed to fetch articles:', error);
+    const duration = Date.now() - startTime;
+    console.error(`fetchArticles: Failed after ${duration}ms:`, error);
     throw error;
   }
 };
@@ -84,30 +106,41 @@ export const fetchArticles = async (): Promise<Article[]> => {
  * Fetch a single article by ID
  */
 export const fetchArticleById = async (id: string): Promise<Article | null> => {
+  const startTime = Date.now();
+  console.debug('fetchArticleById: Starting fetch for id:', id);
+  
   try {
-    const { data, error } = await supabase
-      .from('articles')
-      .select('*')
-      .eq('id', id)
-      .eq('is_active', true)
-      .single();
+    const result = await withTimeoutAndRetry(async () => {
+      const { data, error } = await supabase
+        .from('articles')
+        .select('*')
+        .eq('id', id)
+        .eq('is_active', true)
+        .single();
 
-    if (error) {
-      console.error('Error fetching article:', error);
-      return null;
-    }
+      if (error) {
+        console.error('fetchArticleById: Supabase query error:', error);
+        throw error;
+      }
 
-    if (!data) return null;
+      return data;
+    }, 1, 15000); // 1 retry, 15 second timeout
+
+    const duration = Date.now() - startTime;
+    console.debug(`fetchArticleById: Fetch completed in ${duration}ms`);
+
+    if (!result) return null;
 
     return {
-      id: data.id,
-      name: data.article_name,
-      costPerUnit: parseFloat(data.cost_per_unit) || 0,
-      itemType: data.item_type || 'Article',
-      category: data.category || undefined,
+      id: result.id,
+      name: result.article_name,
+      costPerUnit: parseFloat(result.cost_per_unit) || 0,
+      itemType: result.item_type || 'Article',
+      category: result.category || undefined,
     };
   } catch (error) {
-    console.error('Failed to fetch article:', error);
+    const duration = Date.now() - startTime;
+    console.error(`fetchArticleById: Failed after ${duration}ms:`, error);
     return null;
   }
 };
