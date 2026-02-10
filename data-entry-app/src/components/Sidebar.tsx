@@ -7,7 +7,7 @@ import {
   sidebarClasses
 } from 'react-pro-sidebar';
 import { 
-  LayoutDashboard, 
+  // LayoutDashboard, // Commented out - dashboard menu is disabled
   ChevronLeft,
   ChevronRight,
   FileText,

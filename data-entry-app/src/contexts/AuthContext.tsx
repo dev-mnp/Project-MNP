@@ -346,7 +346,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Check for existing session on mount
   useEffect(() => {
-    let isMounted = true;
     let timeoutId: NodeJS.Timeout | null = null;
 
     const checkExistingSession = async () => {
@@ -466,7 +465,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Cleanup function
     return () => {
-      isMounted = false;
       if (timeoutId) {
         clearTimeout(timeoutId);
       }
@@ -817,7 +815,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, [isAuthenticated, user, validateAndRefreshSession, updateAuthState]);
 
-  const login = useCallback(async (userData: AuthUser, session?: any) => {
+  const login = useCallback(async (userData: AuthUser, _session?: any) => {
     console.debug('Login: Starting login process for user:', userData.email);
     // Mark that we're logging in to prevent session restoration and focus handler from interfering
     isRestoringSessionRef.current = true;

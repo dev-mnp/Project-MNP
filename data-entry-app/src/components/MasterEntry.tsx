@@ -1906,11 +1906,9 @@ const MasterEntry: React.FC = () => {
                           <div>
                             <span className="font-medium">Handicapped:</span> {record.is_handicapped ? 'Yes' : 'No'}
                           </div>
-                          {record.comments && (
-                            <div className="md:col-span-2">
-                              <span className="font-medium">Comments:</span> {record.comments}
-                            </div>
-                          )}
+                          <div className="md:col-span-2">
+                            <span className="font-medium">Comments:</span> {record.comments || record.comment || 'N/A'}
+                          </div>
                           {record.address && (
                             <div className="md:col-span-2">
                               <span className="font-medium">Address:</span> {record.address}

@@ -16,8 +16,10 @@ const InventoryManagement: React.FC = () => {
   // Log when component mounts
   useEffect(() => {
     console.debug('InventoryManagement: Component mounted');
+    isMountedRef.current = true;
     return () => {
       console.debug('InventoryManagement: Component unmounting');
+      isMountedRef.current = false;
     };
   }, []);
   const [consolidatedOrders, setConsolidatedOrders] = useState<ConsolidatedArticle[]>([]);
@@ -51,6 +53,7 @@ const InventoryManagement: React.FC = () => {
 
   // Track loading state to prevent duplicate fetches
   const isLoadingRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
     if (!isAuthenticated || isRestoringSession) {
@@ -310,7 +313,7 @@ const InventoryManagement: React.FC = () => {
             <span className="hidden sm:inline">Export CSV</span>
           </button>
           <button
-            onClick={loadConsolidatedOrders}
+            onClick={() => loadConsolidatedOrders()}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />

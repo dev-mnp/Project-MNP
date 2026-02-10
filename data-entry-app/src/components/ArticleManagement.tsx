@@ -20,8 +20,10 @@ const ArticleManagement: React.FC = () => {
   // Log when component mounts
   useEffect(() => {
     console.debug('ArticleManagement: Component mounted');
+    isMountedRef.current = true;
     return () => {
       console.debug('ArticleManagement: Component unmounting');
+      isMountedRef.current = false;
     };
   }, []);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
@@ -66,6 +68,7 @@ const ArticleManagement: React.FC = () => {
   
   // Track loading state to prevent duplicate fetches
   const isLoadingRef = useRef(false);
+  const isMountedRef = useRef(true);
 
   // Load articles on component mount - only when authenticated and not restoring
   useEffect(() => {
