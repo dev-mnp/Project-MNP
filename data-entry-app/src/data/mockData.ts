@@ -47,6 +47,8 @@ export interface MasterEntryRecord {
   aadharNumber?: string;
   name?: string;
   handicapped?: boolean;
+  gender?: 'Male' | 'Female' | 'Transgender';
+  femaleStatus?: 'Single Mother' | 'Widow' | 'Married' | 'Unmarried';
   address?: string;
   mobile?: string;
   articleId?: string;

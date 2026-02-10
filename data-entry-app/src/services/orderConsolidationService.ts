@@ -9,6 +9,7 @@ import type { ArticleOrderSummary } from './orderService';
 export interface ConsolidatedArticle {
   articleId: string;
   articleName: string;
+  itemType?: string; // 'Article', 'Aid', or 'Project'
   totalQuantity: number;
   breakdown: {
     district: number;
@@ -30,6 +31,23 @@ export interface OrderConsolidation {
 }
 
 /**
+ * Split article name by "+" symbol and normalize each part
+ * Normalizes to title case for case-insensitive matching
+ */
+function splitAndNormalizeArticleName(articleName: string): string[] {
+  return articleName
+    .split('+')
+    .map(name => name.trim())
+    .filter(name => name.length > 0)
+    .map(name => {
+      // Normalize to title case for consistent matching
+      return name.split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+    });
+}
+
+/**
  * Fetch all entries from all beneficiary types and consolidate articles
  */
 export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
@@ -45,6 +63,12 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
     const getArticleName = (articleId: string): string => {
       const article = articleMapById.get(articleId);
       return article?.article_name || articleId;
+    };
+    
+    // Helper to get article item type
+    const getArticleItemType = (articleId: string): string | undefined => {
+      const article = articleMapById.get(articleId);
+      return article?.item_type;
     };
     
     // Fetch district entries from database
@@ -112,43 +136,27 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
     // Fetch institutions entries from database
     const institutionsRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
     
-    // Consolidate articles by article ID
+    // Consolidate articles by normalized split name (not article ID)
     const consolidatedMap = new Map<string, ConsolidatedArticle>();
     
-    // Process district entries
-    districtRecords.forEach((record) => {
-      if (record.selectedArticles) {
-        record.selectedArticles.forEach((article: ArticleSelection) => {
-          const key = article.articleId;
-          if (!consolidatedMap.has(key)) {
-            consolidatedMap.set(key, {
-              articleId: article.articleId,
-              articleName: article.articleName || getArticleName(article.articleId),
-              totalQuantity: 0,
-              breakdown: {
-                district: 0,
-                public: 0,
-                institutions: 0,
-              },
-              totalValue: 0,
-            });
-          }
-          const consolidated = consolidatedMap.get(key)!;
-          consolidated.totalQuantity += article.quantity;
-          consolidated.breakdown.district += article.quantity;
-          consolidated.totalValue += article.totalValue;
-        });
-      }
-    });
-    
-    // Process public entries
-    publicRecords.forEach((record) => {
-      if (record.articleId && record.quantity) {
-        const key = record.articleId;
+    // Helper function to add split items to consolidated map
+    const addSplitItemsToMap = (
+      articleName: string,
+      quantity: number,
+      totalValue: number,
+      beneficiaryType: 'district' | 'public' | 'institutions',
+      itemType?: string
+    ) => {
+      const splitNames = splitAndNormalizeArticleName(articleName);
+      
+      splitNames.forEach((splitName) => {
+        const key = splitName; // Use normalized split name as key
+        
         if (!consolidatedMap.has(key)) {
           consolidatedMap.set(key, {
-            articleId: record.articleId,
-            articleName: getArticleName(record.articleId),
+            articleId: splitName, // Use normalized split name as articleId
+            articleName: splitName,
+            itemType: itemType,
             totalQuantity: 0,
             breakdown: {
               district: 0,
@@ -158,10 +166,35 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
             totalValue: 0,
           });
         }
+        
         const consolidated = consolidatedMap.get(key)!;
-        consolidated.totalQuantity += record.quantity || 0;
-        consolidated.breakdown.public += record.quantity || 0;
-        consolidated.totalValue += record.totalValue || 0;
+        // Each split item gets the full quantity (not divided)
+        consolidated.totalQuantity += quantity;
+        consolidated.breakdown[beneficiaryType] += quantity;
+        // Distribute totalValue proportionally (or could be full value per split item)
+        // For now, we'll distribute it equally among split items
+        const valuePerItem = totalValue / splitNames.length;
+        consolidated.totalValue += valuePerItem;
+      });
+    };
+    
+    // Process district entries
+    districtRecords.forEach((record) => {
+      if (record.selectedArticles) {
+        record.selectedArticles.forEach((article: ArticleSelection) => {
+          const articleName = article.articleName || getArticleName(article.articleId);
+          const itemType = getArticleItemType(article.articleId);
+          addSplitItemsToMap(articleName, article.quantity, article.totalValue, 'district', itemType);
+        });
+      }
+    });
+    
+    // Process public entries
+    publicRecords.forEach((record) => {
+      if (record.articleId && record.quantity) {
+        const articleName = getArticleName(record.articleId);
+        const itemType = getArticleItemType(record.articleId);
+        addSplitItemsToMap(articleName, record.quantity || 0, record.totalValue || 0, 'public', itemType);
       }
     });
     
@@ -169,24 +202,9 @@ export const getConsolidatedOrders = async (): Promise<OrderConsolidation> => {
     institutionsRecords.forEach((record) => {
       if (record.selectedArticles) {
         record.selectedArticles.forEach((article: ArticleSelection) => {
-          const key = article.articleId;
-          if (!consolidatedMap.has(key)) {
-            consolidatedMap.set(key, {
-              articleId: article.articleId,
-              articleName: article.articleName || getArticleName(article.articleId),
-              totalQuantity: 0,
-              breakdown: {
-                district: 0,
-                public: 0,
-                institutions: 0,
-              },
-              totalValue: 0,
-            });
-          }
-          const consolidated = consolidatedMap.get(key)!;
-          consolidated.totalQuantity += article.quantity;
-          consolidated.breakdown.institutions += article.quantity;
-          consolidated.totalValue += article.totalValue;
+          const articleName = article.articleName || getArticleName(article.articleId);
+          const itemType = getArticleItemType(article.articleId);
+          addSplitItemsToMap(articleName, article.quantity, article.totalValue, 'institutions', itemType);
         });
       }
     });
@@ -221,23 +239,72 @@ export const getConsolidatedOrdersWithTracking = async (): Promise<OrderConsolid
   console.debug('getConsolidatedOrdersWithTracking: Starting fetch with tracking');
   
   try {
-    // First get the consolidated orders
+    // First get the consolidated orders (with split names)
     const consolidation = await getConsolidatedOrders();
     
-    // Get order summaries for all articles
-    const articleIds = consolidation.articles.map(a => a.articleId);
-    console.debug(`getConsolidatedOrdersWithTracking: Fetching order summaries for ${articleIds.length} articles`);
-    const orderSummaries = await getOrderSummaryByArticle(articleIds);
+    // Fetch all articles to find matches for split names
+    const allArticles = await fetchAllArticles(true);
     
-    // Merge order data with consolidated articles
+    // Build a map: splitName -> array of article_ids that contain this split name
+    const splitNameToArticleIds = new Map<string, string[]>();
+    
+    // Pre-process all articles to build the mapping
+    allArticles.forEach(article => {
+      const splitNames = splitAndNormalizeArticleName(article.article_name);
+      splitNames.forEach(splitName => {
+        if (!splitNameToArticleIds.has(splitName)) {
+          splitNameToArticleIds.set(splitName, []);
+        }
+        splitNameToArticleIds.get(splitName)!.push(article.id);
+      });
+    });
+    
+    // Collect all unique article IDs that need order summaries
+    const allArticleIdsForOrders = new Set<string>();
+    consolidation.articles.forEach(article => {
+      const matchingIds = splitNameToArticleIds.get(article.articleId) || [];
+      matchingIds.forEach(id => allArticleIdsForOrders.add(id));
+    });
+    
+    // Fetch order summaries for all articles in one batch
+    const allOrderSummaries = await getOrderSummaryByArticle(Array.from(allArticleIdsForOrders));
+    
+    // Map each consolidated article to its order data
     const articlesWithOrders = consolidation.articles.map(article => {
-      const orderSummary = orderSummaries.get(article.articleId);
+      const splitName = article.articleId; // This is the normalized split name
+      const matchingArticleIds = splitNameToArticleIds.get(splitName) || [];
+      
+      if (matchingArticleIds.length === 0) {
+        // No matching articles found, return with zero orders
+        return {
+          ...article,
+          quantityOrdered: 0,
+          quantityReceived: 0,
+          quantityPending: article.totalQuantity,
+          orderSummary: undefined,
+        };
+      }
+      
+      // Aggregate quantities from all matching articles
+      let totalQuantityOrdered = 0;
+      let totalQuantityReceived = 0;
+      
+      matchingArticleIds.forEach(articleId => {
+        const summary = allOrderSummaries.get(articleId);
+        if (summary) {
+          totalQuantityOrdered += summary.totalQuantityOrdered || 0;
+          totalQuantityReceived += summary.totalQuantityReceived || 0;
+        }
+      });
+      
+      const quantityPending = Math.max(0, article.totalQuantity - totalQuantityOrdered);
+      
       return {
         ...article,
-        quantityOrdered: orderSummary?.totalQuantityOrdered || 0,
-        quantityReceived: orderSummary?.totalQuantityReceived || 0,
-        quantityPending: Math.max(0, article.totalQuantity - (orderSummary?.totalQuantityOrdered || 0)),
-        orderSummary,
+        quantityOrdered: totalQuantityOrdered,
+        quantityReceived: totalQuantityReceived,
+        quantityPending: quantityPending,
+        orderSummary: undefined, // Can't use single summary since we're aggregating multiple
       };
     });
     

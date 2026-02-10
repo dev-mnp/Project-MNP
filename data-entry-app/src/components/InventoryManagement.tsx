@@ -27,7 +27,7 @@ const InventoryManagement: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [itemTypeFilter, setItemTypeFilter] = useState<'all' | 'Article' | 'Aid' | 'Project'>('all');
   
   // Sorting
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -133,19 +133,6 @@ const InventoryManagement: React.FC = () => {
     loadConsolidatedOrders(true);
   };
 
-  const toggleRowExpansion = (articleId: string) => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(articleId)) {
-      newExpanded.delete(articleId);
-    } else {
-      newExpanded.add(articleId);
-    }
-    setExpandedRows(newExpanded);
-  };
-
-  const collapseAllRows = () => {
-    setExpandedRows(new Set());
-  };
 
   // Handle sort
   const handleSort = (column: string) => {
@@ -171,9 +158,11 @@ const InventoryManagement: React.FC = () => {
 
   // Filter and sort articles
   const getFilteredAndSortedArticles = (): ConsolidatedArticle[] => {
-    let filtered = consolidatedOrders.filter(article =>
-      article.articleName.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    let filtered = consolidatedOrders.filter(article => {
+      const matchesSearch = article.articleName.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesItemType = itemTypeFilter === 'all' || article.itemType === itemTypeFilter;
+      return matchesSearch && matchesItemType;
+    });
 
     // Sorting
     if (sortColumn) {
@@ -218,35 +207,43 @@ const InventoryManagement: React.FC = () => {
 
   const filteredArticles = getFilteredAndSortedArticles();
 
-  // Calculate totals for filtered articles
-  const filteredTotalQuantity = filteredArticles.reduce((sum, article) => sum + article.totalQuantity, 0);
-  const filteredTotalQuantityOrdered = filteredArticles.reduce((sum, article) => sum + (article.quantityOrdered || 0), 0);
-  const filteredTotalQuantityPending = filteredArticles.reduce((sum, article) => sum + (article.quantityPending || 0), 0);
+  // Calculate metrics by item type
+  const articles = consolidatedOrders.filter(a => a.itemType === 'Article');
+  const aids = consolidatedOrders.filter(a => a.itemType === 'Aid');
+  const projects = consolidatedOrders.filter(a => a.itemType === 'Project');
+  
+  const articlesNeeded = articles.reduce((sum, a) => sum + a.totalQuantity, 0);
+  const articlesOrdered = articles.reduce((sum, a) => sum + (a.quantityOrdered || 0), 0);
+  const articlesPending = articles.reduce((sum, a) => sum + (a.quantityPending || 0), 0);
+  
+  const aidsNeeded = aids.reduce((sum, a) => sum + a.totalQuantity, 0);
+  const aidsOrdered = aids.reduce((sum, a) => sum + (a.quantityOrdered || 0), 0);
+  const aidsPending = aids.reduce((sum, a) => sum + (a.quantityPending || 0), 0);
+  
+  const projectsNeeded = projects.reduce((sum, a) => sum + a.totalQuantity, 0);
+  const projectsOrdered = projects.reduce((sum, a) => sum + (a.quantityOrdered || 0), 0);
+  const projectsPending = projects.reduce((sum, a) => sum + (a.quantityPending || 0), 0);
 
   const handleExport = async () => {
     try {
       const exportData = filteredArticles.map((article) => ({
-        article_name: article.articleName,
-        total_quantity_needed: article.totalQuantity,
-        quantity_ordered: article.quantityOrdered || 0,
-        quantity_received: article.quantityReceived || 0,
-        quantity_pending: article.quantityPending || 0,
-        total_value: article.totalValue,
-        breakdown_district: article.breakdown.district,
-        breakdown_public: article.breakdown.public,
-        breakdown_institutions: article.breakdown.institutions,
+        'Article Name': article.articleName,
+        'Total Quantity Needed': article.totalQuantity,
+        'Quantity Ordered': article.quantityOrdered || 0,
+        'Quantity Pending': article.quantityPending || 0,
+        'District': article.breakdown.district,
+        'Public': article.breakdown.public,
+        'Institutions': article.breakdown.institutions,
       }));
 
       exportToCSV(exportData, 'inventory-orders', [
-        'article_name',
-        'total_quantity_needed',
-        'quantity_ordered',
-        'quantity_received',
-        'quantity_pending',
-        'total_value',
-        'breakdown_district',
-        'breakdown_public',
-        'breakdown_institutions',
+        'Article Name',
+        'Total Quantity Needed',
+        'Quantity Ordered',
+        'Quantity Pending',
+        'District',
+        'Public',
+        'Institutions',
       ], showWarning);
 
       // Log export action
@@ -292,51 +289,112 @@ const InventoryManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-            Total Articles
+      {/* Summary Cards by Item Type */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {/* Articles Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400">Articles</h3>
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">{articles.length} items</span>
           </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {consolidatedOrders.length}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Needed</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">
+                {articlesNeeded.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Ordered</span>
+              <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                {articlesOrdered.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending</span>
+              <span className={`text-lg font-bold ${articlesPending > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                {articlesPending.toLocaleString('en-IN')}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-            Quantity Needed
+
+        {/* Aids Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-green-600 dark:text-green-400">Aids</h3>
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">{aids.length} items</span>
           </div>
-          <div className="text-2xl font-bold text-gray-900 dark:text-white">
-            {filteredTotalQuantity.toLocaleString('en-IN')}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Needed</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">
+                {aidsNeeded.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Ordered</span>
+              <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                {aidsOrdered.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending</span>
+              <span className={`text-lg font-bold ${aidsPending > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                {aidsPending.toLocaleString('en-IN')}
+              </span>
+            </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-            Quantity Ordered
+
+        {/* Projects Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-purple-600 dark:text-purple-400">Projects</h3>
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">{projects.length} items</span>
           </div>
-          <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {filteredTotalQuantityOrdered.toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-700">
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-            Quantity Pending
-          </div>
-          <div className={`text-2xl font-bold ${filteredTotalQuantityPending > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-            {filteredTotalQuantityPending.toLocaleString('en-IN')}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Needed</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">
+                {projectsNeeded.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Ordered</span>
+              <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                {projectsOrdered.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending</span>
+              <span className={`text-lg font-bold ${projectsPending > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                {projectsPending.toLocaleString('en-IN')}
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Search */}
-      <div className="mb-4">
+      {/* Search and Filter */}
+      <div className="mb-4 flex flex-col sm:flex-row gap-4">
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search articles..."
-          className="w-full max-w-md px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+          className="flex-1 max-w-md px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
         />
+        <select
+          value={itemTypeFilter}
+          onChange={(e) => setItemTypeFilter(e.target.value as 'all' | 'Article' | 'Aid' | 'Project')}
+          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm min-w-[150px]"
+        >
+          <option value="all">All Types</option>
+          <option value="Article">Article</option>
+          <option value="Aid">Aid</option>
+          <option value="Project">Project</option>
+        </select>
       </div>
 
       {/* Consolidated Orders Table */}
@@ -362,17 +420,6 @@ const InventoryManagement: React.FC = () => {
           </div>
         ) : (
           <div>
-            {/* Collapse All Button */}
-            {expandedRows.size > 0 && (
-              <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                <button
-                  onClick={collapseAllRows}
-                  className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-                >
-                  Collapse All ({expandedRows.size})
-                </button>
-              </div>
-            )}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
               <thead className="bg-gray-50 dark:bg-gray-800">
@@ -421,76 +468,54 @@ const InventoryManagement: React.FC = () => {
                       </span>
                     </div>
                   </th>
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20"
+                  >
+                    District
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-green-700 dark:text-green-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/20"
+                  >
+                    Public
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-purple-700 dark:text-purple-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/20"
+                  >
+                    Institutions & Others
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredArticles.map((article) => {
-                  const isExpanded = expandedRows.has(article.articleId);
                   const pending = article.quantityPending || 0;
                   
                   return (
-                    <React.Fragment key={article.articleId}>
-                      <tr 
-                        className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-                        onClick={() => toggleRowExpansion(article.articleId)}
-                      >
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
-                          {article.articleName}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-center text-gray-900 dark:text-white font-semibold">
-                          {article.totalQuantity.toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-center text-blue-600 dark:text-blue-400 font-semibold">
-                          {article.quantityOrdered?.toLocaleString('en-IN') || 0}
-                        </td>
-                        <td className={`px-4 py-3 text-sm text-center font-semibold ${pending > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
-                          {pending.toLocaleString('en-IN')}
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={4} className="px-4 py-4 bg-gray-50 dark:bg-gray-800" onClick={(e) => e.stopPropagation()}>
-                            <div className="space-y-4">
-                              {/* Beneficiary Type Breakdown */}
-                              <div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                  {article.breakdown.district > 0 && (
-                                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                                      <div className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">
-                                        District
-                                      </div>
-                                      <div className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                                        {article.breakdown.district.toLocaleString('en-IN')}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {article.breakdown.public > 0 && (
-                                    <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                                      <div className="text-xs font-medium text-green-700 dark:text-green-300 mb-1">
-                                        Public
-                                      </div>
-                                      <div className="text-lg font-bold text-green-900 dark:text-green-100">
-                                        {article.breakdown.public.toLocaleString('en-IN')}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {article.breakdown.institutions > 0 && (
-                                    <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-                                      <div className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">
-                                        Institutions & Others
-                                      </div>
-                                      <div className="text-lg font-bold text-purple-900 dark:text-purple-100">
-                                        {article.breakdown.institutions.toLocaleString('en-IN')}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
+                    <tr 
+                      key={article.articleId}
+                      className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    >
+                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
+                        {article.articleName}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center text-gray-900 dark:text-white font-semibold">
+                        {article.totalQuantity.toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center text-blue-600 dark:text-blue-400 font-semibold">
+                        {article.quantityOrdered?.toLocaleString('en-IN') || 0}
+                      </td>
+                      <td className={`px-4 py-3 text-sm text-center font-semibold ${pending > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                        {pending.toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-900/20">
+                        {article.breakdown.district.toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center text-green-600 dark:text-green-400 font-semibold bg-green-50 dark:bg-green-900/20">
+                        {article.breakdown.public.toLocaleString('en-IN')}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-center text-purple-600 dark:text-purple-400 font-semibold bg-purple-50 dark:bg-purple-900/20">
+                        {article.breakdown.institutions.toLocaleString('en-IN')}
+                      </td>
+                    </tr>
                   );
                 })}
               </tbody>

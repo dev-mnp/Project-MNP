@@ -15,10 +15,11 @@ import type {
   District,
   ArticleSelection,
 } from '../data/mockData';
-import { generateApplicationNumber, generateApplicationNumberFromDB } from '../utils/applicationNumberGenerator';
+import { generateApplicationNumberFromDB } from '../utils/applicationNumberGenerator';
 import MultiSelectArticles from './MultiSelectArticles';
 import { useRBAC } from '../contexts/RBACContext';
-import { fetchArticles } from '../services/articlesService';
+import { fetchArticles, fetchAllArticles } from '../services/articlesService';
+import type { ArticleRecord } from '../services/articlesService';
 import { fetchDistricts, updateDistrictApplicationNumber, getDistrictApplicationNumber } from '../services/districtsService';
 import {
   createDistrictBeneficiaryEntries,
@@ -53,11 +54,7 @@ const MasterEntry: React.FC = () => {
   const [loadingExistingEntries, setLoadingExistingEntries] = useState(true);
   const [showExportModal, setShowExportModal] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [exportTypes, setExportTypes] = useState({
-    district: true,
-    public: false,
-    institutions: false,
-  });
+  const [exportType, setExportType] = useState<'all' | 'district' | 'public' | 'institutions'>('all');
   const [exporting, setExporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -215,6 +212,8 @@ const MasterEntry: React.FC = () => {
             name,
             aadhar_number,
             is_handicapped,
+            gender,
+            female_status,
             address,
             mobile,
             article_id,
@@ -237,6 +236,8 @@ const MasterEntry: React.FC = () => {
           aadharNumber: entry.aadhar_number,
           name: entry.name,
           handicapped: entry.is_handicapped,
+          gender: entry.gender as 'Male' | 'Female' | 'Transgender' | undefined,
+          femaleStatus: entry.female_status as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' | undefined,
           address: entry.address,
           mobile: entry.mobile,
           articleId: entry.article_id,
@@ -564,6 +565,8 @@ const MasterEntry: React.FC = () => {
             name,
             aadhar_number,
             is_handicapped,
+            gender,
+            female_status,
             address,
             mobile,
             article_id,
@@ -585,6 +588,8 @@ const MasterEntry: React.FC = () => {
           aadharNumber: entry.aadhar_number,
           name: entry.name,
           handicapped: entry.is_handicapped,
+          gender: entry.gender as 'Male' | 'Female' | 'Transgender' | undefined,
+          femaleStatus: entry.female_status as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' | undefined,
           address: entry.address,
           mobile: entry.mobile,
           articleId: entry.article_id,
@@ -595,6 +600,7 @@ const MasterEntry: React.FC = () => {
         }));
 
         setRecords(publicRecords);
+        // Show success only after both deletion and refresh succeed
         showSuccess('Entry deleted successfully');
       } catch (error: any) {
         console.error('Failed to delete public entry:', error);
@@ -611,15 +617,18 @@ const MasterEntry: React.FC = () => {
           try {
             const dbRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
             setRecords(dbRecords);
+            // Show success only after both deletion and refresh succeed
+            showSuccess('Entry deleted successfully');
           } catch (refreshError) {
             console.error('Failed to refresh records after delete:', refreshError);
             // Remove from local state as fallback
             setRecords(records.filter((r) => r.id !== recordId));
+            // Still show success since deletion worked, but log the refresh error
+            showSuccess('Entry deleted successfully');
           }
         } else {
           showError('Record not found or missing application number.');
         }
-        showSuccess('Entry deleted successfully');
       } catch (error: any) {
         console.error('Failed to delete institution entry:', error);
         showError(error.message || 'Failed to delete record. Please try again.');
@@ -650,6 +659,9 @@ const MasterEntry: React.FC = () => {
       }
       if (!formData.name) {
         newErrors.name = 'Name is required';
+      }
+      if (!formData.gender) {
+        newErrors.gender = 'Gender is required';
       }
       if (!formData.mobile || formData.mobile.length < 10) {
         newErrors.mobile = 'Valid mobile number is required';
@@ -950,6 +962,8 @@ const MasterEntry: React.FC = () => {
             name: formData.name,
             aadhar_number: formData.aadharNumber,
             is_handicapped: formData.handicapped || false,
+            gender: formData.gender || null,
+            female_status: formData.gender === 'Female' ? formData.femaleStatus || null : null,
             address: formData.address,
             mobile: formData.mobile,
             article_id: formData.articleId,
@@ -971,6 +985,8 @@ const MasterEntry: React.FC = () => {
             name: formData.name,
             aadhar_number: formData.aadharNumber,
             is_handicapped: formData.handicapped || false,
+            gender: formData.gender || null,
+            female_status: formData.gender === 'Female' ? formData.femaleStatus || null : null,
             address: formData.address,
             mobile: formData.mobile,
             article_id: formData.articleId,
@@ -993,6 +1009,8 @@ const MasterEntry: React.FC = () => {
           name,
           aadhar_number,
           is_handicapped,
+          gender,
+          female_status,
           address,
           mobile,
           article_id,
@@ -1014,6 +1032,8 @@ const MasterEntry: React.FC = () => {
         aadharNumber: entry.aadhar_number,
         name: entry.name,
         handicapped: entry.is_handicapped,
+        gender: entry.gender as 'Male' | 'Female' | 'Transgender' | undefined,
+        femaleStatus: entry.female_status as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' | undefined,
         address: entry.address,
         mobile: entry.mobile,
         articleId: entry.article_id,
@@ -1319,6 +1339,8 @@ const MasterEntry: React.FC = () => {
                   name: updatedFormData.name,
                   aadhar_number: updatedFormData.aadharNumber,
                   is_handicapped: updatedFormData.handicapped || false,
+                  gender: updatedFormData.gender || null,
+                  female_status: updatedFormData.gender === 'Female' ? updatedFormData.femaleStatus || null : null,
                   address: updatedFormData.address,
                   mobile: updatedFormData.mobile,
                   article_id: updatedFormData.articleId,
@@ -1340,6 +1362,8 @@ const MasterEntry: React.FC = () => {
                   name,
                   aadhar_number,
                   is_handicapped,
+                  gender,
+                  female_status,
                   address,
                   mobile,
                   article_id,
@@ -1361,6 +1385,8 @@ const MasterEntry: React.FC = () => {
                 aadharNumber: entry.aadhar_number,
                 name: entry.name,
                 handicapped: entry.is_handicapped,
+                gender: entry.gender as 'Male' | 'Female' | 'Transgender' | undefined,
+                femaleStatus: entry.female_status as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' | undefined,
                 address: entry.address,
                 mobile: entry.mobile,
                 articleId: entry.article_id,
@@ -1512,57 +1538,77 @@ const MasterEntry: React.FC = () => {
   };
 
   const handleExport = async () => {
-    if (!exportTypes.district && !exportTypes.public && !exportTypes.institutions) {
-      showWarning('Please select at least one beneficiary type to export.');
-      return;
-    }
-
     setExporting(true);
     try {
-      const exportedTypes: string[] = [];
+      // Fetch all articles to get item_type and article_name_tk
+      const allArticlesData = await fetchAllArticles(true);
+      const articleMap = new Map<string, ArticleRecord>();
+      allArticlesData.forEach(article => {
+        articleMap.set(article.id, article);
+      });
+
+      // Determine which types to export
+      const typesToExport: ('district' | 'public' | 'institutions')[] = 
+        exportType === 'all' 
+          ? ['district', 'public', 'institutions']
+          : [exportType];
+
+      const allExportData: any[] = [];
 
       // Export District
-      if (exportTypes.district) {
+      if (typesToExport.includes('district')) {
         const districtRecords = await fetchDistrictBeneficiaryEntriesGrouped();
-        const exportData = districtRecords.flatMap((record) => {
+        // Fetch districts to get president mobile numbers
+        const districtsList = await fetchDistricts();
+        const districtMap = new Map(districtsList.map(d => [d.id, d]));
+        
+        const districtData = districtRecords.flatMap((record) => {
+          const district = record.districtId ? districtMap.get(record.districtId) : null;
+          const presidentMobile = district?.mobileNumber || '';
+          
           if (!record.selectedArticles || record.selectedArticles.length === 0) {
             return [{
-              application_number: record.applicationNumber,
-              district_name: record.districtName || '',
-              article_name: '',
-              quantity: 0,
-              total_amount: 0,
-              status: '',
-              created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+              'Application Number': record.applicationNumber || '',
+              'Beneficiary Name': record.districtName || '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Beneficiary Type': 'District',
+              'Requested Item': '',
+              'Item Type': '',
+              'Quantity': 0,
+              'Cost Per Unit': 0,
+              'Total Value': 0,
+              'Address': record.districtName || '',
+              'Mobile': presidentMobile,
+              'Comments': '',
+              'Requested Item Tk': '',
             }];
           }
-          return record.selectedArticles.map((article) => ({
-            application_number: record.applicationNumber,
-            district_name: record.districtName || '',
-            article_name: article.articleName,
-            quantity: article.quantity,
-            total_amount: article.totalValue,
-            status: '',
-            created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
-          }));
+          return record.selectedArticles.map((article) => {
+            const articleData = articleMap.get(article.articleId);
+            return {
+              'Application Number': record.applicationNumber || '',
+              'Beneficiary Name': record.districtName || '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Beneficiary Type': 'District',
+              'Requested Item': article.articleName || '',
+              'Item Type': articleData?.item_type || '',
+              'Quantity': article.quantity || 0,
+              'Cost Per Unit': articleData?.cost_per_unit || 0,
+              'Total Value': article.totalValue || 0,
+              'Address': record.districtName || '',
+              'Mobile': presidentMobile,
+              'Comments': article.comments || '',
+              'Requested Item Tk': articleData?.article_name_tk || '',
+            };
+          });
         });
-
-        if (exportData.length > 0) {
-          exportToCSV(exportData, 'master-entry-district', [
-            'application_number',
-            'district_name',
-            'article_name',
-            'quantity',
-            'total_amount',
-            'status',
-            'created_at',
-          ], showWarning);
-          exportedTypes.push('district');
-        }
+        allExportData.push(...districtData);
       }
 
       // Export Public
-      if (exportTypes.public) {
+      if (typesToExport.includes('public')) {
         const { data: publicData, error: publicError } = await supabase
           .from('public_beneficiary_entries')
           .select(`
@@ -1571,6 +1617,8 @@ const MasterEntry: React.FC = () => {
             name,
             aadhar_number,
             is_handicapped,
+            gender,
+            female_status,
             address,
             mobile,
             article_id,
@@ -1588,102 +1636,110 @@ const MasterEntry: React.FC = () => {
           return;
         }
 
-        const publicRecords: MasterEntryRecord[] = (publicData || []).map((entry: any) => ({
-          id: entry.id,
-          applicationNumber: entry.application_number || '',
-          beneficiaryType: 'public' as const,
-          createdAt: entry.created_at,
-          aadharNumber: entry.aadhar_number,
-          name: entry.name,
-          handicapped: entry.is_handicapped,
-          address: entry.address,
-          mobile: entry.mobile,
-          articleId: entry.article_id,
-          quantity: entry.quantity,
-          costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
-          totalValue: entry.total_amount,
-          comments: entry.notes || '',
-        }));
-
-        const exportData = publicRecords.map((record) => ({
-          application_number: record.applicationNumber,
-          name: record.name || '',
-          aadhar_number: record.aadharNumber || '',
-          article_name: record.articleId ? articles.find(a => a.id === record.articleId)?.name || '' : '',
-          quantity: record.quantity || 0,
-          total_amount: record.totalValue || 0,
-          status: '',
-          created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
-        }));
-
-        if (exportData.length > 0) {
-          exportToCSV(exportData, 'master-entry-public', [
-            'application_number',
-            'name',
-            'aadhar_number',
-            'article_name',
-            'quantity',
-            'total_amount',
-            'status',
-            'created_at',
-          ], showError);
-          exportedTypes.push('public');
-        }
+        const publicExportData = (publicData || []).map((entry: any) => {
+          const articleData = articleMap.get(entry.article_id);
+          return {
+            'Application Number': entry.application_number || '',
+            'Beneficiary Name': entry.name || '',
+            'Aadhar Number': entry.aadhar_number || '',
+            'Handicapped Status': entry.is_handicapped ? 'Yes' : 'No',
+            'Beneficiary Type': 'Public',
+            'Requested Item': articleData?.article_name || '',
+            'Item Type': articleData?.item_type || '',
+            'Quantity': entry.quantity || 0,
+            'Cost Per Unit': articleData?.cost_per_unit || (entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0),
+            'Total Value': entry.total_amount || 0,
+            'Address': entry.address || '',
+            'Mobile': entry.mobile || '',
+            'Comments': entry.notes || '',
+            'Requested Item Tk': articleData?.article_name_tk || '',
+          };
+        });
+        allExportData.push(...publicExportData);
       }
 
       // Export Institutions
-      if (exportTypes.institutions) {
+      if (typesToExport.includes('institutions')) {
         const institutionsRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
-        const exportData = institutionsRecords.flatMap((record) => {
+        const institutionsData = institutionsRecords.flatMap((record) => {
           if (!record.selectedArticles || record.selectedArticles.length === 0) {
             return [{
-              application_number: record.applicationNumber,
-              institution_name: record.institutionName || '',
-              institution_type: record.institutionType || '',
-              article_name: '',
-              quantity: 0,
-              total_amount: 0,
-              status: '',
-              created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
+              'Application Number': record.applicationNumber || '',
+              'Beneficiary Name': record.institutionName || '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
+              'Requested Item': '',
+              'Item Type': '',
+              'Quantity': 0,
+              'Cost Per Unit': 0,
+              'Total Value': 0,
+              'Address': record.address || '',
+              'Mobile': record.mobile || '',
+              'Comments': '',
+              'Requested Item Tk': '',
             }];
           }
-          return record.selectedArticles.map((article) => ({
-            application_number: record.applicationNumber,
-            institution_name: record.institutionName || '',
-            institution_type: record.institutionType || '',
-            article_name: article.articleName,
-            quantity: article.quantity,
-            total_amount: article.totalValue,
-            status: '',
-            created_at: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : '',
-          }));
+          return record.selectedArticles.map((article) => {
+            const articleData = articleMap.get(article.articleId);
+            return {
+              'Application Number': record.applicationNumber || '',
+              'Beneficiary Name': record.institutionName || '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
+              'Requested Item': article.articleName || '',
+              'Item Type': articleData?.item_type || '',
+              'Quantity': article.quantity || 0,
+              'Cost Per Unit': articleData?.cost_per_unit || 0,
+              'Total Value': article.totalValue || 0,
+              'Address': record.address || '',
+              'Mobile': record.mobile || '',
+              'Comments': article.comments || '',
+              'Requested Item Tk': articleData?.article_name_tk || '',
+            };
+          });
         });
+        allExportData.push(...institutionsData);
+      }
 
-        if (exportData.length > 0) {
-          exportToCSV(exportData, 'master-entry-institutions', [
-            'application_number',
-            'institution_name',
-            'institution_type',
-            'article_name',
-            'quantity',
-            'total_amount',
-            'status',
-            'created_at',
-          ], showWarning);
-          exportedTypes.push('institutions');
+      // Export all data with consolidated fields
+      if (allExportData.length > 0) {
+        const filename = exportType === 'all' 
+          ? 'master-entry-all' 
+          : `master-entry-${exportType}`;
+        
+        exportToCSV(allExportData, filename, [
+          'Application Number',
+          'Beneficiary Name',
+          'Aadhar Number',
+          'Handicapped Status',
+          'Beneficiary Type',
+          'Requested Item',
+          'Item Type',
+          'Quantity',
+          'Cost Per Unit',
+          'Total Value',
+          'Address',
+          'Mobile',
+          'Comments',
+          'Requested Item Tk',
+        ], showWarning);
+
+        // Log export action
+        if (user) {
+          await logAction(user.id, 'EXPORT', 'master_entry', null, {
+            exported_type: exportType,
+            exported_count: allExportData.length,
+          });
         }
-      }
 
-      // Log export action
-      if (user) {
-        await logAction(user.id, 'EXPORT', 'master_entry', null, {
-          exported_types: exportedTypes,
-        });
+        setShowExportModal(false);
+        setExportType('all');
+        showSuccess(`Exported ${allExportData.length} record(s) successfully`);
+      } else {
+        showWarning('No data to export.');
       }
-
-      setShowExportModal(false);
-      setExportTypes({ district: true, public: false, institutions: false });
-      showSuccess(`Exported ${exportedTypes.length} beneficiary type(s) successfully`);
     } catch (error) {
       console.error('Error exporting master entries:', error);
       showError('Failed to export data. Please try again.');
@@ -2141,6 +2197,104 @@ const MasterEntry: React.FC = () => {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Gender <span className="text-red-500">*</span>
+          </label>
+          <div className="flex gap-4">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="gender"
+                value="Male"
+                checked={formData.gender === 'Male'}
+                onChange={(e) => setFormData({ ...formData, gender: e.target.value as 'Male' | 'Female' | 'Transgender', femaleStatus: undefined })}
+                className="mr-2"
+              />
+              <span className="text-gray-700 dark:text-gray-300">Male</span>
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="gender"
+                value="Female"
+                checked={formData.gender === 'Female'}
+                onChange={(e) => setFormData({ ...formData, gender: e.target.value as 'Male' | 'Female' | 'Transgender', femaleStatus: undefined })}
+                className="mr-2"
+              />
+              <span className="text-gray-700 dark:text-gray-300">Female</span>
+            </label>
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="gender"
+                value="Transgender"
+                checked={formData.gender === 'Transgender'}
+                onChange={(e) => setFormData({ ...formData, gender: e.target.value as 'Male' | 'Female' | 'Transgender', femaleStatus: undefined })}
+                className="mr-2"
+              />
+              <span className="text-gray-700 dark:text-gray-300">Transgender</span>
+            </label>
+          </div>
+          {errors.gender && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.gender}</p>
+          )}
+        </div>
+
+        {formData.gender === 'Female' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Female Status
+            </label>
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="femaleStatus"
+                  value="Single Mother"
+                  checked={formData.femaleStatus === 'Single Mother'}
+                  onChange={(e) => setFormData({ ...formData, femaleStatus: e.target.value as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' })}
+                  className="mr-2"
+                />
+                <span className="text-gray-700 dark:text-gray-300">Single Mother</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="femaleStatus"
+                  value="Widow"
+                  checked={formData.femaleStatus === 'Widow'}
+                  onChange={(e) => setFormData({ ...formData, femaleStatus: e.target.value as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' })}
+                  className="mr-2"
+                />
+                <span className="text-gray-700 dark:text-gray-300">Widow</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="femaleStatus"
+                  value="Married"
+                  checked={formData.femaleStatus === 'Married'}
+                  onChange={(e) => setFormData({ ...formData, femaleStatus: e.target.value as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' })}
+                  className="mr-2"
+                />
+                <span className="text-gray-700 dark:text-gray-300">Married</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="femaleStatus"
+                  value="Unmarried"
+                  checked={formData.femaleStatus === 'Unmarried'}
+                  onChange={(e) => setFormData({ ...formData, femaleStatus: e.target.value as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' })}
+                  className="mr-2"
+                />
+                <span className="text-gray-700 dark:text-gray-300">Unmarried</span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Address
           </label>
           <textarea
@@ -2328,22 +2482,6 @@ const MasterEntry: React.FC = () => {
   const renderInstitutionsForm = () => {
     return (
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Application Number
-          </label>
-          <input
-            type="text"
-            value={
-              editingRecordId
-                ? formData.applicationNumber || ''
-                : generateApplicationNumber('institutions')
-            }
-            readOnly
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white cursor-not-allowed"
-          />
-        </div>
-
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Name <span className="text-red-500">*</span>
@@ -2722,9 +2860,6 @@ const MasterEntry: React.FC = () => {
                     </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Created Date
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Actions
                   </th>
                 </>
@@ -2883,9 +3018,6 @@ const MasterEntry: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                          {new Date(record.createdAt).toLocaleDateString()}
                         </td>
                         <td className="px-4 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2">
@@ -3120,7 +3252,7 @@ const MasterEntry: React.FC = () => {
               <button
                 onClick={() => {
                   setShowExportModal(false);
-                  setExportTypes({ district: true, public: false, institutions: false });
+                  setExportType('all');
                 }}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
@@ -3130,15 +3262,29 @@ const MasterEntry: React.FC = () => {
 
             <div className="p-6 space-y-4">
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Select beneficiary types to export. Separate CSV files will be generated for each selected type.
+                Select beneficiary type to export. A CSV file will be generated with consolidated fields.
               </p>
 
               <div className="space-y-3">
                 <label className="flex items-center space-x-3 cursor-pointer">
                   <input
-                    type="checkbox"
-                    checked={exportTypes.district}
-                    onChange={(e) => setExportTypes({ ...exportTypes, district: e.target.checked })}
+                    type="radio"
+                    name="exportType"
+                    value="all"
+                    checked={exportType === 'all'}
+                    onChange={(e) => setExportType(e.target.value as 'all' | 'district' | 'public' | 'institutions')}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-900 dark:text-white">All</span>
+                </label>
+
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="district"
+                    checked={exportType === 'district'}
+                    onChange={(e) => setExportType(e.target.value as 'all' | 'district' | 'public' | 'institutions')}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                   <span className="text-gray-900 dark:text-white">District</span>
@@ -3146,9 +3292,11 @@ const MasterEntry: React.FC = () => {
 
                 <label className="flex items-center space-x-3 cursor-pointer">
                   <input
-                    type="checkbox"
-                    checked={exportTypes.public}
-                    onChange={(e) => setExportTypes({ ...exportTypes, public: e.target.checked })}
+                    type="radio"
+                    name="exportType"
+                    value="public"
+                    checked={exportType === 'public'}
+                    onChange={(e) => setExportType(e.target.value as 'all' | 'district' | 'public' | 'institutions')}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                   <span className="text-gray-900 dark:text-white">Public</span>
@@ -3156,9 +3304,11 @@ const MasterEntry: React.FC = () => {
 
                 <label className="flex items-center space-x-3 cursor-pointer">
                   <input
-                    type="checkbox"
-                    checked={exportTypes.institutions}
-                    onChange={(e) => setExportTypes({ ...exportTypes, institutions: e.target.checked })}
+                    type="radio"
+                    name="exportType"
+                    value="institutions"
+                    checked={exportType === 'institutions'}
+                    onChange={(e) => setExportType(e.target.value as 'all' | 'district' | 'public' | 'institutions')}
                     className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                   />
                   <span className="text-gray-900 dark:text-white">Institutions & Others</span>
@@ -3169,7 +3319,7 @@ const MasterEntry: React.FC = () => {
                 <button
                   onClick={() => {
                     setShowExportModal(false);
-                    setExportTypes({ district: true, public: false, institutions: false });
+                    setExportType('all');
                   }}
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   disabled={exporting}
@@ -3179,7 +3329,7 @@ const MasterEntry: React.FC = () => {
                 {canExport() && (
                   <button
                     onClick={handleExport}
-                    disabled={exporting || (!exportTypes.district && !exportTypes.public && !exportTypes.institutions)}
+                    disabled={exporting}
                     className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {exporting ? (
