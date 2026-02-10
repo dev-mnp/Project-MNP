@@ -107,20 +107,22 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
 
   const handleArticleSelect = async (article: Article) => {
     // Check if article already exists in selected articles
-    const existingArticle = selectedArticles.find(
+    const existingCount = selectedArticles.filter(
       a => a.articleId === article.id
-    );
+    ).length;
     
-    // If article exists and has cost > 0, prevent duplicate
-    if (existingArticle && article.costPerUnit > 0) {
-      showWarning(`${article.name} is already selected. Articles with cost cannot be added multiple times.`);
-      return; // Prevent adding duplicate
+    // If article already exists, show info message (but allow adding)
+    if (existingCount > 0) {
+      showWarning(`${article.name} is already selected (${existingCount} time${existingCount > 1 ? 's' : ''}). You can add it multiple times with different comments.`);
     }
     
-    let costPerUnit = article.costPerUnit;
+    // Check if article is Aid type - Aid articles should always have zero cost
+    const isAidArticle = article.itemType === 'Aid';
     
-    // If district is selected and article has original cost = 0, check for custom cost
-    if (districtId && article.costPerUnit === 0) {
+    let costPerUnit = isAidArticle ? 0 : article.costPerUnit;
+    
+    // If district is selected and article has original cost = 0 and is NOT an Aid article, check for custom cost
+    if (districtId && article.costPerUnit === 0 && !isAidArticle) {
       const customCost = customCosts.get(article.id);
       if (customCost !== undefined) {
         costPerUnit = customCost;
@@ -159,22 +161,39 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
       {/* Selected Articles Chips */}
       {selectedArticles.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">
-          {selectedArticles.map((article, index) => (
-            <div
-              key={`${article.articleId}-${index}`}
-              className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-lg text-sm"
-            >
-              <span>{article.articleName}</span>
-              <button
-                type="button"
-                onClick={() => handleArticleRemove(index)}
-                className="hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded p-0.5 transition-colors"
-                aria-label={`Remove ${article.articleName}`}
+          {selectedArticles.map((article, index) => {
+            // Count how many times this article appears
+            const duplicateCount = selectedArticles.filter(
+              a => a.articleId === article.articleId
+            ).length;
+            const isDuplicate = duplicateCount > 1;
+            
+            return (
+              <div
+                key={`${article.articleId}-${index}`}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${
+                  isDuplicate
+                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700'
+                    : 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300'
+                }`}
               >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
+                <span>{article.articleName}</span>
+                {isDuplicate && (
+                  <span className="text-xs font-semibold" title={`This article appears ${duplicateCount} times`}>
+                    ({duplicateCount})
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleArticleRemove(index)}
+                  className="hover:bg-opacity-50 rounded p-0.5 transition-colors"
+                  aria-label={`Remove ${article.articleName}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

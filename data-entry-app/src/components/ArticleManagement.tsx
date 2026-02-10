@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save, Download, Loader2 } from 'lucide-react';
+import { Package, Plus, Edit2, Trash2, Search, Filter, X, Save, Download, Loader2, RefreshCw } from 'lucide-react';
 import {
   fetchAllArticles,
   createArticle,
   updateArticle,
-  toggleArticleStatus,
+  deleteArticle,
 } from '../services/articlesService';
 import type { ArticleRecord } from '../services/articlesService';
 import { exportToCSV } from '../utils/csvExport';
 import { logAction } from '../services/auditLogService';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useRBAC } from '../contexts/RBACContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const ArticleManagement: React.FC = () => {
   const { user, isAuthenticated, isRestoringSession } = useAuth();
+  const { canCreate, canUpdate, canDelete, canExport } = useRBAC();
   const { showError, showSuccess, showWarning } = useNotifications();
   
   // Log when component mounts
@@ -48,11 +51,15 @@ const ArticleManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all'); // all, active, inactive
+  
+  // Sorting
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Form state
   const [formData, setFormData] = useState({
     article_name: '',
+    article_name_tk: '',
     cost_per_unit: 0,
     item_type: 'Article',
     category: '',
@@ -69,6 +76,10 @@ const ArticleManagement: React.FC = () => {
   // Track loading state to prevent duplicate fetches
   const isLoadingRef = useRef(false);
   const isMountedRef = useRef(true);
+  
+  // Category combobox state
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const categoryDropdownRef = useRef<HTMLDivElement>(null);
 
   // Load articles on component mount - only when authenticated and not restoring
   useEffect(() => {
@@ -94,7 +105,24 @@ const ArticleManagement: React.FC = () => {
   // Apply filters when articles or filters change
   useEffect(() => {
     applyFilters();
-  }, [articles, searchQuery, itemTypeFilter, categoryFilter, statusFilter]);
+  }, [articles, searchQuery, itemTypeFilter, categoryFilter, sortColumn, sortDirection]);
+
+  // Close category dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
+        setCategoryDropdownOpen(false);
+      }
+    };
+
+    if (categoryDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [categoryDropdownOpen]);
 
   const loadArticles = async (isRetry: boolean = false) => {
     // Prevent duplicate fetches
@@ -183,14 +211,67 @@ const ArticleManagement: React.FC = () => {
       filtered = filtered.filter((article) => article.category === categoryFilter);
     }
 
-    // Status filter
-    if (statusFilter === 'active') {
-      filtered = filtered.filter((article) => article.is_active);
-    } else if (statusFilter === 'inactive') {
-      filtered = filtered.filter((article) => !article.is_active);
+    // Sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        switch (sortColumn) {
+          case 'articleName':
+            aValue = a.article_name || '';
+            bValue = b.article_name || '';
+            break;
+          case 'costPerUnit':
+            aValue = a.cost_per_unit || 0;
+            bValue = b.cost_per_unit || 0;
+            break;
+          case 'itemType':
+            aValue = a.item_type || '';
+            bValue = b.item_type || '';
+            break;
+          case 'category':
+            aValue = a.category || '';
+            bValue = b.category || '';
+            break;
+          default:
+            return 0;
+        }
+
+        // Compare values
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortDirection === 'asc'
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
+        } else {
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+      });
     }
 
     setFilteredArticles(filtered);
+  };
+
+  // Handle sort
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get sort icon for column header - always show indicators
+  const getSortIcon = (column: string) => {
+    if (sortColumn === column) {
+      // Show active sort direction
+      return sortDirection === 'asc' ? '↑' : '↓';
+    }
+    // Show both arrows (lighter color) to indicate sortable
+    return '⇅';
   };
 
   // Get unique item types
@@ -210,6 +291,7 @@ const ArticleManagement: React.FC = () => {
   const resetForm = () => {
     setFormData({
       article_name: '',
+      article_name_tk: '',
       cost_per_unit: 0,
       item_type: 'Article',
       category: '',
@@ -226,6 +308,7 @@ const ArticleManagement: React.FC = () => {
   const handleEdit = (article: ArticleRecord) => {
     setFormData({
       article_name: article.article_name,
+      article_name_tk: article.article_name_tk || '',
       cost_per_unit: article.cost_per_unit,
       item_type: article.item_type,
       category: article.category || '',
@@ -286,23 +369,22 @@ const ArticleManagement: React.FC = () => {
     }
   };
 
-  const handleToggleStatus = async (id: string, currentStatus: boolean) => {
-    const action = currentStatus ? 'inactivate' : 'reactivate';
+  const handleDelete = async (id: string, articleName: string) => {
     setConfirmDialog({
       isOpen: true,
-      title: `${action.charAt(0).toUpperCase() + action.slice(1)} Article`,
-      message: `Are you sure you want to ${action} this article?`,
-      type: 'warning',
+      title: 'Delete Article',
+      message: `Are you sure you want to delete article "${articleName}"? This action cannot be undone.`,
+      type: 'danger',
       onConfirm: async () => {
         setConfirmDialog({ ...confirmDialog, isOpen: false });
-    try {
-      await toggleArticleStatus(id, !currentStatus);
-      await loadArticles();
-          showSuccess(`Article ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
-    } catch (error: any) {
-      console.error('Failed to toggle article status:', error);
-          showError(error.message || 'Failed to update article status. Please try again.');
-    }
+        try {
+          await deleteArticle(id);
+          await loadArticles();
+          showSuccess('Article deleted successfully');
+        } catch (error: any) {
+          console.error('Failed to delete article:', error);
+          showError(error.message || 'Failed to delete article. Please try again.');
+        }
       },
     });
   };
@@ -311,14 +393,12 @@ const ArticleManagement: React.FC = () => {
     setSearchQuery('');
     setItemTypeFilter('all');
     setCategoryFilter('all');
-    setStatusFilter('all');
   };
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
     itemTypeFilter !== 'all' ||
-    categoryFilter !== 'all' ||
-    statusFilter !== 'all';
+    categoryFilter !== 'all';
 
   const handleExport = async () => {
     try {
@@ -365,20 +445,32 @@ const ArticleManagement: React.FC = () => {
         </div>
         {!isFormMode && (
           <div className="flex items-center gap-3">
+            {canExport() && (
+              <button
+                onClick={handleExport}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Export CSV
+              </button>
+            )}
             <button
-              onClick={handleExport}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              onClick={() => loadArticles()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-4 h-4" />
-              Export CSV
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
             </button>
-          <button
-            onClick={handleAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Article
-          </button>
+            {canCreate() && (
+              <button
+                onClick={handleAdd}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Add Article
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -408,6 +500,21 @@ const ArticleManagement: React.FC = () => {
                   {errors.article_name}
                 </p>
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Article Name (Token)
+              </label>
+              <input
+                type="text"
+                value={formData.article_name_tk}
+                onChange={(e) =>
+                  setFormData({ ...formData, article_name_tk: e.target.value })
+                }
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                placeholder="Enter short form/token name (optional)"
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -448,6 +555,7 @@ const ArticleManagement: React.FC = () => {
                 >
                   <option value="Article">Article</option>
                   <option value="Aid">Aid</option>
+                  <option value="Project">Project</option>
                 </select>
                 {errors.item_type && (
                   <p className="mt-1 text-sm text-red-600 dark:text-red-400">
@@ -461,15 +569,47 @@ const ArticleManagement: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Category
               </label>
-              <input
-                type="text"
-                value={formData.category}
-                onChange={(e) =>
-                  setFormData({ ...formData, category: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Enter category (optional)"
-              />
+              <div className="relative" ref={categoryDropdownRef}>
+                <input
+                  type="text"
+                  value={formData.category}
+                  onChange={(e) => {
+                    setFormData({ ...formData, category: e.target.value });
+                    setCategoryDropdownOpen(true);
+                  }}
+                  onFocus={() => setCategoryDropdownOpen(true)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Enter category (optional)"
+                />
+                {categoryDropdownOpen && getCategories().length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    {getCategories()
+                      .filter((cat) =>
+                        cat.toLowerCase().includes(formData.category.toLowerCase())
+                      )
+                      .map((category) => (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, category });
+                            setCategoryDropdownOpen(false);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          {category}
+                        </button>
+                      ))}
+                    {getCategories().filter((cat) =>
+                      cat.toLowerCase().includes(formData.category.toLowerCase())
+                    ).length === 0 && formData.category && (
+                      <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                        No matching categories. Press Enter to create new.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2 pt-4">
@@ -518,7 +658,7 @@ const ArticleManagement: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Search
@@ -570,21 +710,6 @@ const ArticleManagement: React.FC = () => {
                   ))}
                 </select>
               </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Status
-                </label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </div>
       </div>
           </div>
 
@@ -616,20 +741,49 @@ const ArticleManagement: React.FC = () => {
                 <table className="w-full border-collapse">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                        Article Name
+                      <th 
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('articleName')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Article Name
+                          <span className={`text-xs ${sortColumn === 'articleName' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                            {getSortIcon('articleName')}
+                          </span>
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                        Cost Per Unit
+                      <th 
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('costPerUnit')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Cost Per Unit
+                          <span className={`text-xs ${sortColumn === 'costPerUnit' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                            {getSortIcon('costPerUnit')}
+                          </span>
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                        Item Type
+                      <th 
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('itemType')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Item Type
+                          <span className={`text-xs ${sortColumn === 'itemType' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                            {getSortIcon('itemType')}
+                          </span>
+                        </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                        Category
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                        Status
+                      <th 
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('category')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Category
+                          <span className={`text-xs ${sortColumn === 'category' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                            {getSortIcon('category')}
+                          </span>
+                        </div>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                         Actions
@@ -640,9 +794,7 @@ const ArticleManagement: React.FC = () => {
                     {filteredArticles.map((article) => (
                       <tr
                         key={article.id}
-                        className={`hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                          !article.is_active ? 'opacity-60' : ''
-                        }`}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                       >
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {article.article_name}
@@ -657,38 +809,27 @@ const ArticleManagement: React.FC = () => {
                           {article.category || '-'}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <span
-                            className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                              article.is_active
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                            }`}
-                          >
-                            {article.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm">
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleEdit(article)}
-                              className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                              aria-label="Edit"
-                              title="Edit"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleToggleStatus(article.id, article.is_active)}
-                              className={`p-1.5 rounded transition-colors ${
-                                article.is_active
-                                  ? 'text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30'
-                                  : 'text-green-600 dark:text-green-400 hover:bg-green-100 dark:hover:bg-green-900/30'
-                              }`}
-                              aria-label={article.is_active ? 'Inactivate' : 'Reactivate'}
-                              title={article.is_active ? 'Inactivate' : 'Reactivate'}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canUpdate() && (
+                              <button
+                                onClick={() => handleEdit(article)}
+                                className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
+                                aria-label="Edit"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
+                            {canDelete() && (
+                              <button
+                                onClick={() => handleDelete(article.id, article.article_name)}
+                                className="p-1.5 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
+                                aria-label="Delete"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -706,6 +847,15 @@ const ArticleManagement: React.FC = () => {
           )}
         </>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+      />
     </div>
   );
 };

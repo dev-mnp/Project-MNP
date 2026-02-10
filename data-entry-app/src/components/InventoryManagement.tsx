@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Warehouse, RefreshCw, Plus, X, Save, Edit2, Trash2, Download } from 'lucide-react';
+import { Warehouse, RefreshCw, Download } from 'lucide-react';
 import { getConsolidatedOrdersWithTracking, type ConsolidatedArticle } from '../services/orderConsolidationService';
-import { createOrderEntry, updateOrderEntry, type OrderEntry, type OrderEntryWithArticle } from '../services/orderService';
 import { exportToCSV } from '../utils/csvExport';
 import { logAction } from '../services/auditLogService';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useRBAC } from '../contexts/RBACContext';
 import { ConfirmDialog } from './ConfirmDialog';
-import { CURRENCY_SYMBOL } from '../constants/currency';
 
 const InventoryManagement: React.FC = () => {
   const { user, isAuthenticated, isRestoringSession } = useAuth();
+  const { canExport } = useRBAC();
   const { showError, showSuccess, showWarning } = useNotifications();
   
   // Log when component mounts
@@ -28,8 +28,10 @@ const InventoryManagement: React.FC = () => {
   const [retryCount, setRetryCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
-  const [showOrderForm, setShowOrderForm] = useState<string | null>(null);
+  
+  // Sorting
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -41,14 +43,6 @@ const InventoryManagement: React.FC = () => {
     title: '',
     message: '',
     onConfirm: () => {},
-  });
-  
-  // Order form state
-  const [orderForm, setOrderForm] = useState<Partial<OrderEntry>>({
-    quantity_ordered: 1,
-    order_date: new Date().toISOString().split('T')[0],
-    status: 'pending',
-    total_amount: 0,
   });
 
   // Track loading state to prevent duplicate fetches
@@ -151,104 +145,78 @@ const InventoryManagement: React.FC = () => {
 
   const collapseAllRows = () => {
     setExpandedRows(new Set());
-    setShowOrderForm(null);
-    setEditingOrderId(null);
   };
 
-  const handleCreateOrder = async (articleId: string) => {
-    try {
-      if (!orderForm.quantity_ordered || orderForm.quantity_ordered <= 0) {
-        showWarning('Please enter a valid quantity');
-        return;
-      }
+  // Handle sort
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
 
-      await createOrderEntry({
-        article_id: articleId,
-        quantity_ordered: orderForm.quantity_ordered,
-        order_date: orderForm.order_date || new Date().toISOString().split('T')[0],
-        status: orderForm.status || 'pending',
-        supplier_name: orderForm.supplier_name || null,
-        supplier_contact: orderForm.supplier_contact || null,
-        unit_price: orderForm.unit_price || null,
-        total_amount: orderForm.total_amount || 0,
-        expected_delivery_date: orderForm.expected_delivery_date || null,
-        notes: orderForm.notes || null,
-      } as OrderEntry);
+  // Get sort icon for column header - always show indicators
+  const getSortIcon = (column: string) => {
+    if (sortColumn === column) {
+      // Show active sort direction
+      return sortDirection === 'asc' ? '↑' : '↓';
+    }
+    // Show both arrows (lighter color) to indicate sortable
+    return '⇅';
+  };
 
-      // Reset form
-      setOrderForm({
-        quantity_ordered: 1,
-        order_date: new Date().toISOString().split('T')[0],
-        status: 'pending',
-        total_amount: 0,
+  // Filter and sort articles
+  const getFilteredAndSortedArticles = (): ConsolidatedArticle[] => {
+    let filtered = consolidatedOrders.filter(article =>
+      article.articleName.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    // Sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        switch (sortColumn) {
+          case 'articleName':
+            aValue = a.articleName || '';
+            bValue = b.articleName || '';
+            break;
+          case 'needed':
+            aValue = a.totalQuantity || 0;
+            bValue = b.totalQuantity || 0;
+            break;
+          case 'ordered':
+            aValue = a.quantityOrdered || 0;
+            bValue = b.quantityOrdered || 0;
+            break;
+          case 'pending':
+            aValue = a.quantityPending || 0;
+            bValue = b.quantityPending || 0;
+            break;
+          default:
+            return 0;
+        }
+
+        // Compare values
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortDirection === 'asc'
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
+        } else {
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        }
       });
-      setShowOrderForm(null);
-      
-      // Reload data
-      await loadConsolidatedOrders();
-      showSuccess('Order created successfully');
-    } catch (error: any) {
-      console.error('Failed to create order:', error);
-      showError(error.message || 'Failed to create order. Please try again.');
     }
+
+    return filtered;
   };
 
-  const handleUpdateOrder = async (orderId: string) => {
-    try {
-      await updateOrderEntry(orderId, orderForm as Partial<OrderEntry>);
-      setEditingOrderId(null);
-      setOrderForm({
-        quantity_ordered: 1,
-        order_date: new Date().toISOString().split('T')[0],
-        status: 'pending',
-        total_amount: 0,
-      });
-      await loadConsolidatedOrders();
-    } catch (error: any) {
-      console.error('Failed to update order:', error);
-      showError(error.message || 'Failed to update order. Please try again.');
-    }
-  };
-
-  const handleDeleteOrder = async (orderId: string) => {
-    if (!confirm('Are you sure you want to delete this order?')) return;
-    
-    try {
-      const { deleteOrderEntry } = await import('../services/orderService');
-      await deleteOrderEntry(orderId);
-      await loadConsolidatedOrders();
-    } catch (error: any) {
-      console.error('Failed to delete order:', error);
-      showError(error.message || 'Failed to delete order. Please try again.');
-    }
-  };
-
-  const startEditOrder = (order: OrderEntry, articleId: string) => {
-    // Expand the row if not already expanded
-    if (!expandedRows.has(articleId)) {
-      const newExpanded = new Set(expandedRows);
-      newExpanded.add(articleId);
-      setExpandedRows(newExpanded);
-    }
-    setEditingOrderId(order.id!);
-    setShowOrderForm(articleId);
-    setOrderForm({
-      quantity_ordered: order.quantity_ordered,
-      order_date: order.order_date,
-      status: order.status,
-      supplier_name: order.supplier_name || '',
-      supplier_contact: order.supplier_contact || '',
-      unit_price: order.unit_price || 0,
-      total_amount: order.total_amount,
-      expected_delivery_date: order.expected_delivery_date || '',
-      notes: order.notes || '',
-    });
-  };
-
-  // Filter articles based on search query
-  const filteredArticles = consolidatedOrders.filter(article =>
-    article.articleName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredArticles = getFilteredAndSortedArticles();
 
   // Calculate totals for filtered articles
   const filteredTotalQuantity = filteredArticles.reduce((sum, article) => sum + article.totalQuantity, 0);
@@ -305,13 +273,15 @@ const InventoryManagement: React.FC = () => {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
+          {canExport() && (
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Export CSV</span>
+            </button>
+          )}
           <button
             onClick={() => loadConsolidatedOrders()}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -407,23 +377,49 @@ const InventoryManagement: React.FC = () => {
               <table className="w-full border-collapse">
               <thead className="bg-gray-50 dark:bg-gray-800">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Article Name
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('articleName')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Article Name
+                      <span className={`text-xs ${sortColumn === 'articleName' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('articleName')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Needed
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('needed')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      Needed
+                      <span className={`text-xs ${sortColumn === 'needed' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('needed')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Ordered
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('ordered')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      Ordered
+                      <span className={`text-xs ${sortColumn === 'ordered' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('ordered')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Received
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Pending
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Actions
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('pending')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      Pending
+                      <span className={`text-xs ${sortColumn === 'pending' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('pending')}
+                      </span>
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -431,11 +427,6 @@ const InventoryManagement: React.FC = () => {
                 {filteredArticles.map((article) => {
                   const isExpanded = expandedRows.has(article.articleId);
                   const pending = article.quantityPending || 0;
-                  const orders = article.orderSummary?.orders || [];
-                  const quantityOrdered = article.quantityOrdered || 0;
-                  const quantityNeeded = article.totalQuantity;
-                  const isFulfilled = quantityOrdered >= quantityNeeded;
-                  const isExcessOrdered = quantityOrdered > quantityNeeded;
                   
                   return (
                     <React.Fragment key={article.articleId}>
@@ -452,127 +443,16 @@ const InventoryManagement: React.FC = () => {
                         <td className="px-4 py-3 text-sm text-center text-blue-600 dark:text-blue-400 font-semibold">
                           {article.quantityOrdered?.toLocaleString('en-IN') || 0}
                         </td>
-                        <td className="px-4 py-3 text-sm text-center text-green-600 dark:text-green-400 font-semibold">
-                          {article.quantityReceived?.toLocaleString('en-IN') || 0}
-                        </td>
                         <td className={`px-4 py-3 text-sm text-center font-semibold ${pending > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
                           {pending.toLocaleString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-2">
-                            {isFulfilled && (
-                              <span className={`px-2 py-1 text-xs font-medium rounded ${
-                                isExcessOrdered 
-                                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300'
-                                  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-                              }`}>
-                                {isExcessOrdered ? 'Excess Ordered' : 'Fulfilled'}
-                              </span>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // Expand the row if not already expanded
-                                if (!expandedRows.has(article.articleId)) {
-                                  const newExpanded = new Set(expandedRows);
-                                  newExpanded.add(article.articleId);
-                                  setExpandedRows(newExpanded);
-                                }
-                                setShowOrderForm(article.articleId);
-                                setEditingOrderId(null);
-                                setOrderForm({
-                                  quantity_ordered: pending > 0 ? Math.min(pending, 1) : 1,
-                                  order_date: new Date().toISOString().split('T')[0],
-                                  status: 'pending',
-                                  total_amount: 0,
-                                });
-                              }}
-                              className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors"
-                            >
-                              <Plus className="w-3 h-3" />
-                              Order
-                            </button>
-                          </div>
                         </td>
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-4 bg-gray-50 dark:bg-gray-800" onClick={(e) => e.stopPropagation()}>
+                          <td colSpan={4} className="px-4 py-4 bg-gray-50 dark:bg-gray-800" onClick={(e) => e.stopPropagation()}>
                             <div className="space-y-4">
-                              {/* Order History */}
-                              <div>
-                                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                                  Order History
-                                </h4>
-                                {orders.length === 0 ? (
-                                  <p className="text-sm text-gray-500 dark:text-gray-400">No orders yet.</p>
-                                ) : (
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                      <thead>
-                                        <tr className="border-b border-gray-200 dark:border-gray-700">
-                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Date</th>
-                                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 dark:text-gray-400">Qty</th>
-                                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 dark:text-gray-400">Status</th>
-                                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Supplier</th>
-                                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Amount</th>
-                                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Actions</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {orders.map((order: OrderEntryWithArticle) => (
-                                          <tr key={order.id} className="border-b border-gray-200 dark:border-gray-700">
-                                            <td className="px-3 py-2 text-gray-900 dark:text-white">
-                                              {new Date(order.order_date).toLocaleDateString()}
-                                            </td>
-                                            <td className="px-3 py-2 text-center text-gray-900 dark:text-white">
-                                              {order.quantity_ordered}
-                                            </td>
-                                            <td className="px-3 py-2 text-center">
-                                              <span className={`px-2 py-1 text-xs rounded ${
-                                                order.status === 'received' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                                                order.status === 'ordered' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                                                order.status === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                                                'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                                              }`}>
-                                                {order.status}
-                                              </span>
-                                            </td>
-                                            <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
-                                              {order.supplier_name || '-'}
-                                            </td>
-                                            <td className="px-3 py-2 text-right text-gray-900 dark:text-white">
-                                              {CURRENCY_SYMBOL}{typeof order.total_amount === 'string' ? parseFloat(order.total_amount).toLocaleString('en-IN') : (order.total_amount || 0).toLocaleString('en-IN')}
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                              <div className="flex items-center justify-end gap-2">
-                                                <button
-                                                  onClick={() => startEditOrder(order as OrderEntry, article.articleId)}
-                                                  className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                                                >
-                                                  <Edit2 className="w-4 h-4" />
-                                                </button>
-                                                <button
-                                                  onClick={() => handleDeleteOrder(order.id!)}
-                                                  className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                                                >
-                                                  <Trash2 className="w-4 h-4" />
-                                                </button>
-                                              </div>
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                )}
-                              </div>
-                              
                               {/* Beneficiary Type Breakdown */}
                               <div>
-                                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                                  Quantity Needed by Beneficiary Type
-                                </h4>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                   {article.breakdown.district > 0 && (
                                     <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -604,129 +484,8 @@ const InventoryManagement: React.FC = () => {
                                       </div>
                                     </div>
                                   )}
-                                  {article.breakdown.district === 0 && 
-                                   article.breakdown.public === 0 && 
-                                   article.breakdown.institutions === 0 && (
-                                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                                      No beneficiary entries found for this article.
-                                    </p>
-                                  )}
                                 </div>
                               </div>
-                              
-                              {/* Order Form */}
-                              {showOrderForm === article.articleId && (
-                                <div className="mt-4 p-4 bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-                                    {editingOrderId ? 'Edit Order' : 'Create New Order'}
-                                  </h4>
-                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Quantity
-                                      </label>
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        value={orderForm.quantity_ordered || 1}
-                                        onChange={(e) => setOrderForm({ ...orderForm, quantity_ordered: parseInt(e.target.value) || 1 })}
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                        placeholder="Enter quantity"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Order Date
-                                      </label>
-                                      <input
-                                        type="date"
-                                        value={orderForm.order_date || ''}
-                                        onChange={(e) => setOrderForm({ ...orderForm, order_date: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Status
-                                      </label>
-                                      <select
-                                        value={orderForm.status || 'pending'}
-                                        onChange={(e) => setOrderForm({ ...orderForm, status: e.target.value as any })}
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                      >
-                                        <option value="pending">Pending</option>
-                                        <option value="ordered">Ordered</option>
-                                        <option value="received">Received</option>
-                                        <option value="cancelled">Cancelled</option>
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Supplier Name
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={orderForm.supplier_name || ''}
-                                        onChange={(e) => setOrderForm({ ...orderForm, supplier_name: e.target.value })}
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Unit Price
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={orderForm.unit_price || ''}
-                                        onChange={(e) => {
-                                          const unitPrice = parseFloat(e.target.value) || 0;
-                                          const qty = orderForm.quantity_ordered || 1;
-                                          setOrderForm({ ...orderForm, unit_price: unitPrice, total_amount: unitPrice * qty });
-                                        }}
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Total Amount
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={orderForm.total_amount || 0}
-                                        onChange={(e) => setOrderForm({ ...orderForm, total_amount: parseFloat(e.target.value) || 0 })}
-                                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
-                                      />
-                                    </div>
-                                  </div>
-                                  <div className="mt-4 flex items-center gap-2">
-                                    <button
-                                      onClick={() => editingOrderId ? handleUpdateOrder(editingOrderId) : handleCreateOrder(article.articleId)}
-                                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                                    >
-                                      <Save className="w-4 h-4" />
-                                      {editingOrderId ? 'Update' : 'Create'} Order
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        setShowOrderForm(null);
-                                        setEditingOrderId(null);
-                                        setOrderForm({
-                                          quantity_ordered: 1,
-                                          order_date: new Date().toISOString().split('T')[0],
-                                          status: 'pending',
-                                          total_amount: 0,
-                                        });
-                                      }}
-                                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-sm"
-                                    >
-                                      <X className="w-4 h-4" />
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
                             </div>
                           </td>
                         </tr>

@@ -5,6 +5,7 @@ import { logAction } from './auditLogService';
 export interface ArticleRecord {
   id: string;
   article_name: string;
+  article_name_tk?: string;
   cost_per_unit: number;
   item_type: string;
   category?: string;
@@ -47,6 +48,7 @@ export const fetchAllArticles = async (includeInactive: boolean = true): Promise
     return (result || []).map((record) => ({
       id: record.id,
       article_name: record.article_name,
+      article_name_tk: record.article_name_tk || null,
       cost_per_unit: parseFloat(record.cost_per_unit) || 0,
       item_type: record.item_type || 'Article',
       category: record.category || null,
@@ -162,6 +164,7 @@ const getCurrentUserId = async (): Promise<string | null> => {
  */
 export const createArticle = async (article: {
   article_name: string;
+  article_name_tk?: string;
   cost_per_unit: number;
   item_type: string;
   category?: string;
@@ -181,6 +184,7 @@ export const createArticle = async (article: {
     const result = {
       id: data.id,
       article_name: data.article_name,
+      article_name_tk: data.article_name_tk || null,
       cost_per_unit: parseFloat(data.cost_per_unit) || 0,
       item_type: data.item_type || 'Article',
       category: data.category || null,
@@ -196,6 +200,7 @@ export const createArticle = async (article: {
       entity_summary: `Article: ${result.article_name}`,
       new_values: {
         article_name: result.article_name,
+        article_name_tk: result.article_name_tk,
         cost_per_unit: result.cost_per_unit,
         item_type: result.item_type,
         category: result.category,
@@ -217,6 +222,7 @@ export const updateArticle = async (
   id: string,
   updates: {
     article_name?: string;
+    article_name_tk?: string;
     cost_per_unit?: number;
     item_type?: string;
     category?: string;
@@ -245,6 +251,7 @@ export const updateArticle = async (
     const result = {
       id: data.id,
       article_name: data.article_name,
+      article_name_tk: data.article_name_tk || null,
       cost_per_unit: parseFloat(data.cost_per_unit) || 0,
       item_type: data.item_type || 'Article',
       category: data.category || null,
@@ -325,6 +332,97 @@ export const toggleArticleStatus = async (id: string, isActive: boolean): Promis
     return result;
   } catch (error) {
     console.error('Failed to toggle article status:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete an article after checking for foreign key references
+ */
+export const deleteArticle = async (id: string): Promise<void> => {
+  try {
+    // First, fetch the article to get its name for error messages
+    const { data: articleData, error: fetchError } = await supabase
+      .from('articles')
+      .select('article_name')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !articleData) {
+      throw new Error('Article not found');
+    }
+
+    const articleName = articleData.article_name;
+
+    // Check for foreign key references in all tables
+    const referenceChecks = await Promise.all([
+      // Check district_beneficiary_entries
+      supabase
+        .from('district_beneficiary_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('article_id', id),
+      // Check public_beneficiary_entries
+      supabase
+        .from('public_beneficiary_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('article_id', id),
+      // Check institutions_beneficiary_entries
+      supabase
+        .from('institutions_beneficiary_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('article_id', id),
+      // Check order_entries
+      supabase
+        .from('order_entries')
+        .select('id', { count: 'exact', head: true })
+        .eq('article_id', id),
+      // Check fund_request_articles
+      supabase
+        .from('fund_request_articles')
+        .select('id', { count: 'exact', head: true })
+        .eq('article_id', id),
+    ]);
+
+    const [
+      { count: districtCount },
+      { count: publicCount },
+      { count: institutionsCount },
+      { count: orderCount },
+      { count: fundRequestCount },
+    ] = referenceChecks.map((result) => ({ count: result.count || 0 }));
+
+    // Build error message if any references exist
+    const references: string[] = [];
+    if (districtCount > 0) references.push(`${districtCount} district ${districtCount === 1 ? 'entry' : 'entries'}`);
+    if (publicCount > 0) references.push(`${publicCount} public ${publicCount === 1 ? 'entry' : 'entries'}`);
+    if (institutionsCount > 0) references.push(`${institutionsCount} institution ${institutionsCount === 1 ? 'entry' : 'entries'}`);
+    if (orderCount > 0) references.push(`${orderCount} order ${orderCount === 1 ? 'entry' : 'entries'}`);
+    if (fundRequestCount > 0) references.push(`${fundRequestCount} fund request ${fundRequestCount === 1 ? 'entry' : 'entries'}`);
+
+    if (references.length > 0) {
+      const errorMessage = `Cannot delete article '${articleName}'. It is currently being used in: ${references.join(', ')}.`;
+      throw new Error(errorMessage);
+    }
+
+    // No references found, proceed with deletion
+    const { error: deleteError } = await supabase
+      .from('articles')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('Error deleting article:', deleteError);
+      throw deleteError;
+    }
+
+    // Log audit action
+    const userId = await getCurrentUserId();
+    await logAction(userId, 'DELETE', 'article', id, {
+      entity_name: articleName,
+      entity_summary: `Article: ${articleName}`,
+    });
+  } catch (error) {
+    console.error('Failed to delete article:', error);
     throw error;
   }
 };

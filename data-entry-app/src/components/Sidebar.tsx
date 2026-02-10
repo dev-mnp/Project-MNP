@@ -30,7 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { isAdmin, hasPermission } = useRBAC();
+  const { isAdmin } = useRBAC();
   const [collapsed, setCollapsed] = useState(false);
 
   const handleMenuItemClick = (path: string) => {
@@ -48,8 +48,8 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'fund-request', label: 'Fund Request', icon: DollarSign, path: '/fund-request' },
   ];
 
-  // Add user management for admin
-  if (isAdmin || hasPermission('users:read')) {
+  // Add user management for admin only
+  if (isAdmin) {
     menuItems.push({ id: 'user-management', label: 'User Management', icon: Users, path: '/user-management' });
   }
 

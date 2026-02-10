@@ -31,6 +31,9 @@ export const PERMISSIONS = {
   // Settings permissions
   'settings:read': 'settings:read',
   'settings:write': 'settings:write',
+  
+  // Export permission
+  'export': 'export',
 } as const;
 
 // Role-based permission mappings
@@ -50,29 +53,29 @@ export const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     PERMISSIONS['users:delete'],
     PERMISSIONS['settings:read'],
     PERMISSIONS['settings:write'],
+    PERMISSIONS['export'],
   ],
   editor: [
-    // Editor can read and write but has restrictions on deleting critical resources
+    // Editor can read, write, delete, and export
     PERMISSIONS['data:read'],
     PERMISSIONS['data:write'],
-    // No data:delete for editor
+    PERMISSIONS['data:delete'],
     PERMISSIONS['inventory:read'],
     PERMISSIONS['inventory:write'],
-    // No inventory:delete for editor
+    PERMISSIONS['inventory:delete'],
     PERMISSIONS['reports:read'],
     PERMISSIONS['reports:write'],
-    PERMISSIONS['users:read'],
-    // No users:write or users:delete for editor
     PERMISSIONS['settings:read'],
-    // No settings:write for editor
+    PERMISSIONS['export'],
+    // No users or audit permissions for editor
   ],
   viewer: [
-    // Viewer is read-only
+    // Viewer is read-only but can export
     PERMISSIONS['data:read'],
     PERMISSIONS['inventory:read'],
     PERMISSIONS['reports:read'],
-    PERMISSIONS['users:read'],
     PERMISSIONS['settings:read'],
+    PERMISSIONS['export'],
   ],
 };
 
@@ -83,12 +86,32 @@ export const hasPermission = (role: UserRole, permission: string): boolean => {
 
 // Helper function to check if a role can delete
 export const canDelete = (role: UserRole): boolean => {
-  return role === ROLES.ADMIN;
+  return role === ROLES.ADMIN || role === ROLES.EDITOR;
 };
 
 // Helper function to check if a role can write
 export const canWrite = (role: UserRole): boolean => {
   return role === ROLES.ADMIN || role === ROLES.EDITOR;
+};
+
+// Helper function to check if a role can create
+export const canCreate = (role: UserRole): boolean => {
+  return role === ROLES.ADMIN || role === ROLES.EDITOR;
+};
+
+// Helper function to check if a role can update
+export const canUpdate = (role: UserRole): boolean => {
+  return role === ROLES.ADMIN || role === ROLES.EDITOR;
+};
+
+// Helper function to check if a role can export
+export const canExport = (role: UserRole): boolean => {
+  return role === ROLES.ADMIN || role === ROLES.EDITOR || role === ROLES.VIEWER;
+};
+
+// Helper function to check if a role can view
+export const canView = (role: UserRole): boolean => {
+  return role === ROLES.ADMIN || role === ROLES.EDITOR || role === ROLES.VIEWER;
 };
 
 // Helper function to check if a role is read-only
