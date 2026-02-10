@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import type { UserRole } from '../lib/supabase';
-import { ROLE_PERMISSIONS, ROLES, hasPermission as checkPermission, canDelete, canWrite, isReadOnly } from '../constants/roles';
+import { ROLE_PERMISSIONS, ROLES, hasPermission as checkPermission, canDelete, canWrite, canCreate, canUpdate, canExport, canView, isReadOnly } from '../constants/roles';
 
 interface RBACContextType {
   // Role checks
@@ -13,6 +13,10 @@ interface RBACContextType {
   hasPermission: (permission: string) => boolean;
   canDelete: () => boolean;
   canWrite: () => boolean;
+  canCreate: () => boolean;
+  canUpdate: () => boolean;
+  canExport: () => boolean;
+  canView: () => boolean;
   isReadOnly: () => boolean;
   
   // User info
@@ -56,6 +60,22 @@ export const RBACProvider: React.FC<RBACProviderProps> = ({ children }) => {
       canWrite: () => {
         if (!userRole) return false;
         return canWrite(userRole);
+      },
+      canCreate: () => {
+        if (!userRole) return false;
+        return canCreate(userRole);
+      },
+      canUpdate: () => {
+        if (!userRole) return false;
+        return canUpdate(userRole);
+      },
+      canExport: () => {
+        if (!userRole) return false;
+        return canExport(userRole);
+      },
+      canView: () => {
+        if (!userRole) return false;
+        return canView(userRole);
       },
       isReadOnly: () => {
         if (!userRole) return false;

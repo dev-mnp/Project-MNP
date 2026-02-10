@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Menu, Moon, Sun, User, LogOut } from 'lucide-react';
+import { Menu, Moon, Sun, User, LogOut, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -13,6 +13,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
   const { theme, setTheme, actualTheme } = useSettings();
   const navigate = useNavigate();
   const [showProfilePopup, setShowProfilePopup] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
 
   const toggleTheme = () => {
@@ -41,8 +42,15 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
   }, [showProfilePopup]);
 
   const handleLogout = async () => {
-    await logout();
-    navigate('/login');
+    try {
+      setIsLoggingOut(true);
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Error during logout:', error);
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -144,10 +152,20 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
 
                     <button
                       onClick={handleLogout}
-                      className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      disabled={isLoggingOut}
+                      className="w-full flex items-center gap-3 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <LogOut className="w-4 h-4" />
-                      <span>Logout</span>
+                      {isLoggingOut ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Logging out...</span>
+                        </>
+                      ) : (
+                        <>
+                          <LogOut className="w-4 h-4" />
+                          <span>Logout</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>

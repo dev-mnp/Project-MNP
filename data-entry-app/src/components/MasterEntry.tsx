@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, X, Save, Trash2, Pencil, Download, Loader2, Info } from 'lucide-react';
+import { Plus, X, Save, Trash2, Pencil, Download, Loader2, Info, RefreshCw, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import {
   institutionTypes,
 } from '../data/mockData';
@@ -19,7 +19,7 @@ import { generateApplicationNumber, generateApplicationNumberFromDB } from '../u
 import MultiSelectArticles from './MultiSelectArticles';
 import { useRBAC } from '../contexts/RBACContext';
 import { fetchArticles } from '../services/articlesService';
-import { fetchDistricts } from '../services/districtsService';
+import { fetchDistricts, updateDistrictApplicationNumber, getDistrictApplicationNumber } from '../services/districtsService';
 import {
   createDistrictBeneficiaryEntries,
   fetchDistrictBeneficiaryEntriesGrouped,
@@ -38,7 +38,7 @@ type BeneficiaryType = 'district' | 'public' | 'institutions';
 
 const MasterEntry: React.FC = () => {
   const { user, isAuthenticated, isRestoringSession } = useAuth();
-  const { canDelete } = useRBAC();
+  const { canDelete, canCreate, canUpdate, canExport } = useRBAC();
   const { showError, showSuccess, showWarning } = useNotifications();
   const [beneficiaryTypeFilter, setBeneficiaryTypeFilter] = useState<BeneficiaryType>('district');
   const [isFormMode, setIsFormMode] = useState(false);
@@ -59,6 +59,9 @@ const MasterEntry: React.FC = () => {
     institutions: false,
   });
   const [exporting, setExporting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -178,7 +181,8 @@ const MasterEntry: React.FC = () => {
   // Load records when filter changes - only when authenticated and not restoring
   const isLoadingRecordsRef = useRef(false);
   
-  useEffect(() => {
+  // Load records function - extracted for reuse
+  const loadRecords = async () => {
     if (!isAuthenticated || isRestoringSession) {
       return;
     }
@@ -192,82 +196,86 @@ const MasterEntry: React.FC = () => {
     const loadStartTime = Date.now();
     console.debug(`MasterEntry: Starting to load records for filter: ${beneficiaryTypeFilter}`);
     
-    const loadRecords = async () => {
-      try {
-        setLoadingRecords(true);
+    try {
+      setLoadingRecords(true);
 
-        if (beneficiaryTypeFilter === 'district') {
-          // Fetch from database for district type
-          const dbRecords = await fetchDistrictBeneficiaryEntriesGrouped();
-          const loadDuration = Date.now() - loadStartTime;
-          console.debug(`MasterEntry: District records loaded in ${loadDuration}ms, count: ${dbRecords?.length || 0}`);
-          setRecords(dbRecords);
-        } else if (beneficiaryTypeFilter === 'public') {
-          // Fetch from database for public type
-          const { data, error } = await supabase
-            .from('public_beneficiary_entries')
-            .select(`
-              id,
-              application_number,
-              name,
-              aadhar_number,
-              is_handicapped,
-              address,
-              mobile,
-              article_id,
-              quantity,
-              total_amount,
-              notes,
-              status,
-              created_at
-            `)
-            .order('created_at', { ascending: false });
-
-          if (error) throw error;
-
-          // Transform to MasterEntryRecord format
-          const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
-            id: entry.id,
-            applicationNumber: entry.application_number || '',
-            beneficiaryType: 'public' as const,
-            createdAt: entry.created_at,
-            aadharNumber: entry.aadhar_number,
-            name: entry.name,
-            handicapped: entry.is_handicapped,
-            address: entry.address,
-            mobile: entry.mobile,
-            articleId: entry.article_id,
-            quantity: entry.quantity,
-            costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
-            totalValue: entry.total_amount,
-            comments: entry.notes || '',
-          }));
-
-          const loadDuration = Date.now() - loadStartTime;
-          console.debug(`MasterEntry: Public records loaded in ${loadDuration}ms, count: ${publicRecords?.length || 0}`);
-          setRecords(publicRecords);
-        } else if (beneficiaryTypeFilter === 'institutions') {
-          // Institutions: No DB table yet - show empty array
-          const loadDuration = Date.now() - loadStartTime;
-          console.debug(`MasterEntry: Institutions filter selected (no data) in ${loadDuration}ms`);
-          setRecords([]);
-          showWarning('Institutions functionality requires a database table. Please contact the administrator.');
-        }
-      } catch (error) {
+      if (beneficiaryTypeFilter === 'district') {
+        // Fetch from database for district type
+        const dbRecords = await fetchDistrictBeneficiaryEntriesGrouped();
         const loadDuration = Date.now() - loadStartTime;
-        console.error(`MasterEntry: Failed to load records after ${loadDuration}ms:`, error);
-        setRecords([]);
-        if (beneficiaryTypeFilter === 'public') {
-          showError('Failed to load public beneficiary entries. Please try again.');
-        }
-      } finally {
-        isLoadingRecordsRef.current = false;
-        setLoadingRecords(false);
+        console.debug(`MasterEntry: District records loaded in ${loadDuration}ms, count: ${dbRecords?.length || 0}`);
+        setRecords(dbRecords);
+      } else if (beneficiaryTypeFilter === 'public') {
+        // Fetch from database for public type
+        const { data, error } = await supabase
+          .from('public_beneficiary_entries')
+          .select(`
+            id,
+            application_number,
+            name,
+            aadhar_number,
+            is_handicapped,
+            address,
+            mobile,
+            article_id,
+            quantity,
+            total_amount,
+            notes,
+            status,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Transform to MasterEntryRecord format
+        const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
+          id: entry.id,
+          applicationNumber: entry.application_number || '',
+          beneficiaryType: 'public' as const,
+          createdAt: entry.created_at,
+          aadharNumber: entry.aadhar_number,
+          name: entry.name,
+          handicapped: entry.is_handicapped,
+          address: entry.address,
+          mobile: entry.mobile,
+          articleId: entry.article_id,
+          quantity: entry.quantity,
+          costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+          totalValue: entry.total_amount,
+          comments: entry.notes || '',
+        }));
+
         const loadDuration = Date.now() - loadStartTime;
-        console.debug(`MasterEntry: loadRecords completed in ${loadDuration}ms`);
+        console.debug(`MasterEntry: Public records loaded in ${loadDuration}ms, count: ${publicRecords?.length || 0}`);
+        setRecords(publicRecords);
+      } else if (beneficiaryTypeFilter === 'institutions') {
+        // Fetch from database for institutions type
+        const dbRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
+        const loadDuration = Date.now() - loadStartTime;
+        console.debug(`MasterEntry: Institutions records loaded in ${loadDuration}ms, count: ${dbRecords?.length || 0}`);
+        setRecords(dbRecords);
       }
-    };
+    } catch (error) {
+      const loadDuration = Date.now() - loadStartTime;
+      console.error(`MasterEntry: Failed to load records after ${loadDuration}ms:`, error);
+      setRecords([]);
+      if (beneficiaryTypeFilter === 'public') {
+        showError('Failed to load public beneficiary entries. Please try again.');
+      } else if (beneficiaryTypeFilter === 'institutions') {
+        showError('Failed to load institution beneficiary entries. Please try again.');
+      } else {
+        showError('Failed to load records. Please try again.');
+      }
+    } finally {
+      isLoadingRecordsRef.current = false;
+      setLoadingRecords(false);
+      const loadDuration = Date.now() - loadStartTime;
+      console.debug(`MasterEntry: loadRecords completed in ${loadDuration}ms`);
+    }
+  };
 
+  useEffect(() => {
     loadRecords();
     
     return () => {
@@ -275,6 +283,137 @@ const MasterEntry: React.FC = () => {
       isLoadingRecordsRef.current = false;
     };
   }, [beneficiaryTypeFilter, isAuthenticated, isRestoringSession]);
+
+  // Handle column sorting
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Filter and sort records
+  const getFilteredAndSortedRecords = (): MasterEntryRecord[] => {
+    let filtered = [...records];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter((record) => {
+        if (beneficiaryTypeFilter === 'district') {
+          return (
+            record.applicationNumber?.toLowerCase().includes(query) ||
+            record.districtName?.toLowerCase().includes(query)
+          );
+        } else if (beneficiaryTypeFilter === 'public') {
+          return (
+            record.applicationNumber?.toLowerCase().includes(query) ||
+            record.name?.toLowerCase().includes(query) ||
+            record.aadharNumber?.toLowerCase().includes(query)
+          );
+        } else if (beneficiaryTypeFilter === 'institutions') {
+          return (
+            record.applicationNumber?.toLowerCase().includes(query) ||
+            record.institutionName?.toLowerCase().includes(query)
+          );
+        }
+        return false;
+      });
+    }
+
+    // Apply sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        switch (sortColumn) {
+          case 'applicationNumber':
+            aValue = a.applicationNumber || '';
+            bValue = b.applicationNumber || '';
+            break;
+          case 'districtName':
+            aValue = a.districtName || '';
+            bValue = b.districtName || '';
+            break;
+          case 'name':
+            aValue = a.name || '';
+            bValue = b.name || '';
+            break;
+          case 'aadharNumber':
+            aValue = a.aadharNumber || '';
+            bValue = b.aadharNumber || '';
+            break;
+          case 'article':
+            aValue = getArticleById(a.articleId || '')?.name || '';
+            bValue = getArticleById(b.articleId || '')?.name || '';
+            break;
+          case 'totalValue':
+            aValue = a.totalValue || 0;
+            bValue = b.totalValue || 0;
+            break;
+          case 'totalAccrued':
+            aValue = a.totalAccrued || 0;
+            bValue = b.totalAccrued || 0;
+            break;
+          case 'remainingFund':
+            // Calculate remaining fund for district
+            if (a.districtId) {
+              const district = getDistrictById(a.districtId);
+              aValue = district ? district.allottedBudget - (a.totalAccrued || 0) : 0;
+            } else {
+              aValue = 0;
+            }
+            if (b.districtId) {
+              const district = getDistrictById(b.districtId);
+              bValue = district ? district.allottedBudget - (b.totalAccrued || 0) : 0;
+            } else {
+              bValue = 0;
+            }
+            break;
+          case 'handicapped':
+            aValue = a.handicapped ? 1 : 0;
+            bValue = b.handicapped ? 1 : 0;
+            break;
+          case 'institutionType':
+            aValue = a.institutionType || '';
+            bValue = b.institutionType || '';
+            break;
+          case 'articlesCount':
+            aValue = a.selectedArticles?.length || 0;
+            bValue = b.selectedArticles?.length || 0;
+            break;
+          default:
+            return 0;
+        }
+
+        // Compare values
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortDirection === 'asc'
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
+        } else {
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+      });
+    }
+
+    return filtered;
+  };
+
+  // Get sort icon for column header - always show indicators
+  const getSortIcon = (column: string) => {
+    if (sortColumn === column) {
+      // Show active sort direction
+      return sortDirection === 'asc' ? '↑' : '↓';
+    }
+    // Show both arrows (lighter color) to indicate sortable
+    return '⇅';
+  };
 
 
   // Helper function to get article by ID
@@ -915,20 +1054,32 @@ const MasterEntry: React.FC = () => {
         let applicationNumber = formData.applicationNumber;
 
         // If editing, use existing application number
-        // If new, check if district already has an entry
+        // If new, check district_master for application_number first
         if (!editingRecordId && !applicationNumber) {
-          // Check if district already has an entry
-          const existingEntry = await fetchDistrictBeneficiaryEntryByDistrictId(formData.districtId);
-          if (existingEntry) {
-            // District already has an entry, use its application number
-            applicationNumber = existingEntry.applicationNumber;
+          // First, check if district_master has an application_number
+          const districtAppNumber = await getDistrictApplicationNumber(formData.districtId);
+          
+          if (districtAppNumber) {
+            // Use application_number from district_master
+            applicationNumber = districtAppNumber;
             // Delete old entries to replace with new ones
-            if (applicationNumber) {
-              await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber);
-            }
+            await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber);
           } else {
-            // New district entry, generate new application number
-            applicationNumber = await generateApplicationNumberFromDB('district');
+            // No application_number in district_master, check if district already has entries
+            const existingEntry = await fetchDistrictBeneficiaryEntryByDistrictId(formData.districtId);
+            if (existingEntry) {
+              // District already has an entry, use its application number
+              applicationNumber = existingEntry.applicationNumber;
+              // Delete old entries to replace with new ones
+              if (applicationNumber) {
+                await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber);
+              }
+            } else {
+              // New district entry, generate new application number
+              applicationNumber = await generateApplicationNumberFromDB('district');
+              // Update district_master with the new application number
+              await updateDistrictApplicationNumber(formData.districtId, applicationNumber);
+            }
           }
         } else if (editingRecordId && applicationNumber) {
           // Editing existing entry - delete old entries first
@@ -953,6 +1104,18 @@ const MasterEntry: React.FC = () => {
         }));
 
         await createDistrictBeneficiaryEntries(entries);
+
+        // Update district_master table with application_number (if not already set)
+        // This ensures district_master always has the application_number
+        try {
+          const currentDistrictAppNumber = await getDistrictApplicationNumber(formData.districtId!);
+          if (!currentDistrictAppNumber) {
+            await updateDistrictApplicationNumber(formData.districtId!, applicationNumber);
+          }
+        } catch (updateError) {
+          console.error('Failed to update district_master application_number:', updateError);
+          // Don't fail the entire save if this update fails - log error but continue
+        }
 
         // Refresh records from database
         try {
@@ -2351,10 +2514,12 @@ const MasterEntry: React.FC = () => {
       );
     }
 
-    if (records.length === 0) {
+    const filteredAndSortedRecords = getFilteredAndSortedRecords();
+
+    if (filteredAndSortedRecords.length === 0) {
       return (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          No records found for {beneficiaryTypeFilter} type
+          {searchQuery.trim() ? 'No records found matching your search' : `No records found for ${beneficiaryTypeFilter} type`}
         </div>
       );
     }
@@ -2366,20 +2531,60 @@ const MasterEntry: React.FC = () => {
             <tr>
               {beneficiaryTypeFilter === 'district' && (
                 <>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    App Number
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('applicationNumber')}
+                  >
+                    <div className="flex items-center gap-1">
+                      App Number
+                      <span className={`text-xs ${sortColumn === 'applicationNumber' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('applicationNumber')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    District Name
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('districtName')}
+                  >
+                    <div className="flex items-center gap-1">
+                      District Name
+                      <span className={`text-xs ${sortColumn === 'districtName' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('districtName')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Articles
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('articlesCount')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Articles
+                      <span className={`text-xs ${sortColumn === 'articlesCount' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('articlesCount')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Total Accrued
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('totalAccrued')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Total Accrued
+                      <span className={`text-xs ${sortColumn === 'totalAccrued' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('totalAccrued')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Remaining Fund
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('remainingFund')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Remaining Fund
+                      <span className={`text-xs ${sortColumn === 'remainingFund' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('remainingFund')}
+                      </span>
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Actions
@@ -2388,23 +2593,71 @@ const MasterEntry: React.FC = () => {
               )}
               {beneficiaryTypeFilter === 'public' && (
                 <>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    App Number
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('applicationNumber')}
+                  >
+                    <div className="flex items-center gap-1">
+                      App Number
+                      <span className={`text-xs ${sortColumn === 'applicationNumber' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('applicationNumber')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Name
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('name')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Name
+                      <span className={`text-xs ${sortColumn === 'name' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('name')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Aadhar
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('aadharNumber')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Aadhar
+                      <span className={`text-xs ${sortColumn === 'aadharNumber' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('aadharNumber')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Article
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('article')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Article
+                      <span className={`text-xs ${sortColumn === 'article' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('article')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Total Value
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('totalValue')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Total Value
+                      <span className={`text-xs ${sortColumn === 'totalValue' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('totalValue')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Created Date
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('handicapped')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Handicapped
+                      <span className={`text-xs ${sortColumn === 'handicapped' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('handicapped')}
+                      </span>
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Actions
@@ -2413,20 +2666,60 @@ const MasterEntry: React.FC = () => {
               )}
               {beneficiaryTypeFilter === 'institutions' && (
                 <>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    App Number
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('applicationNumber')}
+                  >
+                    <div className="flex items-center gap-1">
+                      App Number
+                      <span className={`text-xs ${sortColumn === 'applicationNumber' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('applicationNumber')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Name
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('name')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Name
+                      <span className={`text-xs ${sortColumn === 'name' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('name')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Type
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('institutionType')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Type
+                      <span className={`text-xs ${sortColumn === 'institutionType' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('institutionType')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Articles
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('articlesCount')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Articles
+                      <span className={`text-xs ${sortColumn === 'articlesCount' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('articlesCount')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                    Total Accrued
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('totalAccrued')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Total Accrued
+                      <span className={`text-xs ${sortColumn === 'totalAccrued' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('totalAccrued')}
+                      </span>
+                    </div>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Created Date
@@ -2439,10 +2732,14 @@ const MasterEntry: React.FC = () => {
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-            {records.map((record) => {
+            {filteredAndSortedRecords.map((record) => {
               const isExpanded = expandedRows.has(record.id);
-              const canExpand = (beneficiaryTypeFilter === 'district' || beneficiaryTypeFilter === 'institutions') &&
+              const canExpandDistrict = (beneficiaryTypeFilter === 'district' || beneficiaryTypeFilter === 'institutions') &&
                 record.selectedArticles && record.selectedArticles.length > 0;
+              const canExpandPublic = beneficiaryTypeFilter === 'public' && (
+                record.address || record.mobile || record.quantity || record.comments
+              );
+              const canExpand = canExpandDistrict || canExpandPublic;
 
               return (
                 <React.Fragment key={record.id}>
@@ -2491,16 +2788,18 @@ const MasterEntry: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRowClick(record);
-                              }}
-                              className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                              aria-label="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
+                            {canUpdate() && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRowClick(record);
+                                }}
+                                className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
+                                aria-label="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
                             {canDelete() && (
                               <button
                                 onClick={(e) => handleDelete(e, record.id)}
@@ -2517,7 +2816,14 @@ const MasterEntry: React.FC = () => {
                     {beneficiaryTypeFilter === 'public' && (
                       <>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                          {record.applicationNumber}
+                          <div className="flex items-center gap-2">
+                            {canExpandPublic && (
+                              <span className="text-gray-400">
+                                {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                              </span>
+                            )}
+                            {record.applicationNumber}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
                           {record.name}
@@ -2532,20 +2838,22 @@ const MasterEntry: React.FC = () => {
                           {CURRENCY_SYMBOL}{(record.totalValue || 0).toLocaleString('en-IN')}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                          {new Date(record.createdAt).toLocaleDateString()}
+                          {record.handicapped ? 'Yes' : 'No'}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRowClick(record);
-                              }}
-                              className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                              aria-label="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
+                            {canUpdate() && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRowClick(record);
+                                }}
+                                className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
+                                aria-label="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
                             {canDelete() && (
                               <button
                                 onClick={(e) => handleDelete(e, record.id)}
@@ -2581,16 +2889,18 @@ const MasterEntry: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleRowClick(record);
-                              }}
-                              className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
-                              aria-label="Edit"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
+                            {canUpdate() && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRowClick(record);
+                                }}
+                                className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors"
+                                aria-label="Edit"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
                             {canDelete() && (
                               <button
                                 onClick={(e) => handleDelete(e, record.id)}
@@ -2605,47 +2915,80 @@ const MasterEntry: React.FC = () => {
                       </>
                     )}
                   </tr>
-                  {/* Expanded row for district and institutions */}
+                  {/* Expanded row for district, institutions, and public */}
                   {isExpanded && canExpand && (
                     <tr>
                       <td
-                        colSpan={beneficiaryTypeFilter === 'district' ? 6 : 7}
+                        colSpan={
+                          beneficiaryTypeFilter === 'district' ? 6 :
+                          beneficiaryTypeFilter === 'public' ? 7 :
+                          7
+                        }
                         className="px-4 py-4 bg-gray-50 dark:bg-gray-800"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="space-y-2">
-                          <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                            Articles
-                          </h4>
-                          {record.selectedArticles && record.selectedArticles.length > 0 ? (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-sm">
-                                <thead>
-                                  <tr className="border-b border-gray-200 dark:border-gray-700">
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Article Name</th>
-                                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 dark:text-gray-400">Quantity</th>
-                                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Cost/Unit</th>
-                                    <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Total Value</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Comments</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {record.selectedArticles.map((article, idx) => (
-                                    <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
-                                      <td className="px-3 py-2 text-gray-900 dark:text-white">{article.articleName}</td>
-                                      <td className="px-3 py-2 text-center text-gray-900 dark:text-white">{article.quantity}</td>
-                                      <td className="px-3 py-2 text-right text-gray-900 dark:text-white">{CURRENCY_SYMBOL}{article.costPerUnit.toLocaleString('en-IN')}</td>
-                                      <td className="px-3 py-2 text-right text-gray-900 dark:text-white font-medium">{CURRENCY_SYMBOL}{article.totalValue.toLocaleString('en-IN')}</td>
-                                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{article.comments || '-'}</td>
+                        {beneficiaryTypeFilter === 'public' ? (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                            {record.address && (
+                              <div className="col-span-2">
+                                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Address:</span>
+                                <p className="text-sm text-gray-900 dark:text-white">{record.address}</p>
+                              </div>
+                            )}
+                            {record.mobile && (
+                              <div>
+                                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Mobile:</span>
+                                <p className="text-sm text-gray-900 dark:text-white">{record.mobile}</p>
+                              </div>
+                            )}
+                            {record.quantity && (
+                              <div>
+                                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Quantity:</span>
+                                <p className="text-sm text-gray-900 dark:text-white">{record.quantity}</p>
+                              </div>
+                            )}
+                            {record.comments && (
+                              <div className="col-span-2 md:col-span-4">
+                                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Comments:</span>
+                                <p className="text-sm text-gray-900 dark:text-white">{record.comments || '-'}</p>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">
+                              Articles
+                            </h4>
+                            {record.selectedArticles && record.selectedArticles.length > 0 ? (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Article Name</th>
+                                      <th className="px-3 py-2 text-center text-xs font-medium text-gray-600 dark:text-gray-400">Quantity</th>
+                                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Cost/Unit</th>
+                                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-600 dark:text-gray-400">Total Value</th>
+                                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-600 dark:text-gray-400">Comments</th>
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500 dark:text-gray-400">No articles found.</p>
-                          )}
-                        </div>
+                                  </thead>
+                                  <tbody>
+                                    {record.selectedArticles.map((article, idx) => (
+                                      <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
+                                        <td className="px-3 py-2 text-gray-900 dark:text-white">{article.articleName}</td>
+                                        <td className="px-3 py-2 text-center text-gray-900 dark:text-white">{article.quantity}</td>
+                                        <td className="px-3 py-2 text-right text-gray-900 dark:text-white">{CURRENCY_SYMBOL}{article.costPerUnit.toLocaleString('en-IN')}</td>
+                                        <td className="px-3 py-2 text-right text-gray-900 dark:text-white font-medium">{CURRENCY_SYMBOL}{article.totalValue.toLocaleString('en-IN')}</td>
+                                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{article.comments || '-'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 dark:text-gray-400">No articles found.</p>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -2662,47 +3005,90 @@ const MasterEntry: React.FC = () => {
     <div className="p-4 sm:p-6">
       {/* Sticky Header */}
       <div className="sticky top-0 z-10 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 pb-4 mb-4 px-1">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
-          <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
-              Beneficiary Type:
-            </label>
-            <select
-              value={beneficiaryTypeFilter}
-              onChange={(e) => {
-                setBeneficiaryTypeFilter(e.target.value as BeneficiaryType);
-                setIsFormMode(false);
-                resetForm();
-              }}
-              disabled={isFormMode}
-              className="flex-1 sm:flex-initial min-w-[140px] px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="district">District</option>
-              <option value="public">Public</option>
-              <option value="institutions">Institutions & Others</option>
-            </select>
-          </div>
+        <div className="flex flex-col gap-3 sm:gap-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                Beneficiary Type:
+              </label>
+              <select
+                value={beneficiaryTypeFilter}
+                onChange={(e) => {
+                  setBeneficiaryTypeFilter(e.target.value as BeneficiaryType);
+                  setIsFormMode(false);
+                  resetForm();
+                }}
+                disabled={isFormMode}
+                className="flex-1 sm:flex-initial min-w-[140px] px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <option value="district">District</option>
+                <option value="public">Public</option>
+                <option value="institutions">Institutions & Others</option>
+              </select>
+            </div>
 
-          <div className="flex items-center gap-3 sm:gap-3 flex-shrink-0">
-            {!isFormMode && (
-              <>
-                <button
-                  onClick={handleExportClick}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
-                >
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">Export</span>
-                </button>
-                <button
-                  onClick={handleAdd}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap w-full sm:w-auto justify-center"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add</span>
-                </button>
-              </>
-            )}
+            <div className="flex items-center gap-3 sm:gap-3 flex-shrink-0">
+              {!isFormMode && (
+                <>
+                  {canExport() && (
+                    <button
+                      onClick={handleExportClick}
+                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span className="hidden sm:inline">Export</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={loadRecords}
+                    disabled={loadingRecords}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${loadingRecords ? 'animate-spin' : ''}`} />
+                    <span className="hidden sm:inline">Refresh</span>
+                  </button>
+                  {canCreate() && (
+                    <button
+                      onClick={handleAdd}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap w-full sm:w-auto justify-center"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add</span>
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
+          
+          {/* Search Bar for District and Public */}
+          {(beneficiaryTypeFilter === 'district' || beneficiaryTypeFilter === 'public') && !isFormMode && (
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={
+                    beneficiaryTypeFilter === 'district'
+                      ? 'Search by application number or district name...'
+                      : 'Search by application number, name, or Aadhar...'
+                  }
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                />
+              </div>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                  aria-label="Clear search"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2790,23 +3176,25 @@ const MasterEntry: React.FC = () => {
                 >
                   Cancel
                 </button>
-                <button
-                  onClick={handleExport}
-                  disabled={exporting || (!exportTypes.district && !exportTypes.public && !exportTypes.institutions)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {exporting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Exporting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      <span>Export</span>
-                    </>
-                  )}
-                </button>
+                {canExport() && (
+                  <button
+                    onClick={handleExport}
+                    disabled={exporting || (!exportTypes.district && !exportTypes.public && !exportTypes.institutions)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {exporting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Exporting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>Export</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>

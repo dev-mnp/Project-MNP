@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Plus, Edit2, Trash2, Download, Search, Loader2 } from 'lucide-react';
+import { DollarSign, Plus, Edit2, Trash2, Download, Search, Loader2, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   fetchFundRequests,
@@ -16,7 +16,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 const FundRequest: React.FC = () => {
   const navigate = useNavigate();
   const { showError, showSuccess } = useNotifications();
-  const { canDelete } = useRBAC();
+  const { canDelete, canCreate, canUpdate, canExport } = useRBAC();
   const { isAuthenticated, isRestoringSession } = useAuth();
   const [fundRequests, setFundRequests] = useState<FundRequestType[]>([]);
   const [filteredFundRequests, setFilteredFundRequests] = useState<FundRequestType[]>([]);
@@ -28,6 +28,10 @@ const FundRequest: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  
+  // Sorting
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Confirm dialog
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -56,7 +60,7 @@ const FundRequest: React.FC = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [fundRequests, searchQuery, typeFilter, statusFilter, startDate, endDate]);
+  }, [fundRequests, searchQuery, typeFilter, statusFilter, startDate, endDate, sortColumn, sortDirection]);
 
   const loadFundRequests = async () => {
     try {
@@ -98,7 +102,67 @@ const FundRequest: React.FC = () => {
       );
     }
 
+    // Sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        switch (sortColumn) {
+          case 'fundRequestNumber':
+            aValue = a.fund_request_number || '';
+            bValue = b.fund_request_number || '';
+            break;
+          case 'type':
+            aValue = a.fund_request_type || '';
+            bValue = b.fund_request_type || '';
+            break;
+          case 'totalAmount':
+            aValue = a.total_amount || 0;
+            bValue = b.total_amount || 0;
+            break;
+          case 'date':
+            aValue = a.created_at ? new Date(a.created_at).getTime() : 0;
+            bValue = b.created_at ? new Date(b.created_at).getTime() : 0;
+            break;
+          default:
+            return 0;
+        }
+
+        // Compare values
+        if (typeof aValue === 'string' && typeof bValue === 'string') {
+          return sortDirection === 'asc'
+            ? aValue.localeCompare(bValue)
+            : bValue.localeCompare(aValue);
+        } else {
+          return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+        }
+      });
+    }
+
     setFilteredFundRequests(filtered);
+  };
+
+  // Handle sort
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get sort icon for column header - always show indicators
+  const getSortIcon = (column: string) => {
+    if (sortColumn === column) {
+      // Show active sort direction
+      return sortDirection === 'asc' ? '↑' : '↓';
+    }
+    // Show both arrows (lighter color) to indicate sortable
+    return '⇅';
   };
 
   const handleAdd = () => {
@@ -203,13 +267,25 @@ const FundRequest: React.FC = () => {
           </p>
         </div>
         
-        <button
-          onClick={handleAdd}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Fund Request
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadFundRequests}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </button>
+          {canCreate() && (
+            <button
+              onClick={handleAdd}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Fund Request
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -282,17 +358,49 @@ const FundRequest: React.FC = () => {
             <table className="w-full">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Fund Request Number
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
+                    onClick={() => handleSort('fundRequestNumber')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Fund Request Number
+                      <span className={`text-xs ${sortColumn === 'fundRequestNumber' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('fundRequestNumber')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Type
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
+                    onClick={() => handleSort('type')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Type
+                      <span className={`text-xs ${sortColumn === 'type' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('type')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Total Amount
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
+                    onClick={() => handleSort('totalAmount')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Total Amount
+                      <span className={`text-xs ${sortColumn === 'totalAmount' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('totalAmount')}
+                      </span>
+                    </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Date
+                  <th 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 select-none"
+                    onClick={() => handleSort('date')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Date
+                      <span className={`text-xs ${sortColumn === 'date' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('date')}
+                      </span>
+                    </div>
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Actions
@@ -316,39 +424,45 @@ const FundRequest: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleDownload(fundRequest.id!, fundRequest.fund_request_type, fundRequest.fund_request_number)}
-                          disabled={downloading?.id === fundRequest.id && downloading?.type === 'fr'}
-                          className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900 rounded transition-colors"
-                          title="Download FR Document"
-                        >
-                          {downloading?.id === fundRequest.id && downloading?.type === 'fr' ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
-                          )}
-                        </button>
-                        {fundRequest.fund_request_type === 'Article' && (
-                          <button
-                            onClick={() => handleDownloadPurchaseOrder(fundRequest.id!, fundRequest.fund_request_number)}
-                            disabled={downloading?.id === fundRequest.id && downloading?.type === 'po'}
-                            className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900 rounded transition-colors"
-                            title="Download Purchase Order"
-                          >
-                            {downloading?.id === fundRequest.id && downloading?.type === 'po' ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Download className="w-4 h-4" />
+                        {canExport() && (
+                          <>
+                            <button
+                              onClick={() => handleDownload(fundRequest.id!, fundRequest.fund_request_type, fundRequest.fund_request_number)}
+                              disabled={downloading?.id === fundRequest.id && downloading?.type === 'fr'}
+                              className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900 rounded transition-colors"
+                              title="Download FR Document"
+                            >
+                              {downloading?.id === fundRequest.id && downloading?.type === 'fr' ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </button>
+                            {fundRequest.fund_request_type === 'Article' && (
+                              <button
+                                onClick={() => handleDownloadPurchaseOrder(fundRequest.id!, fundRequest.fund_request_number)}
+                                disabled={downloading?.id === fundRequest.id && downloading?.type === 'po'}
+                                className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900 rounded transition-colors"
+                                title="Download Purchase Order"
+                              >
+                                {downloading?.id === fundRequest.id && downloading?.type === 'po' ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Download className="w-4 h-4" />
+                                )}
+                              </button>
                             )}
+                          </>
+                        )}
+                        {canUpdate() && (
+                          <button
+                            onClick={() => handleEdit(fundRequest.id!)}
+                            className="p-2 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                            title="Edit"
+                          >
+                            <Edit2 className="w-4 h-4" />
                           </button>
                         )}
-                        <button
-                          onClick={() => handleEdit(fundRequest.id!)}
-                          className="p-2 text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
                         {canDelete() && (
                           <button
                             onClick={() => handleDelete(fundRequest.id!, fundRequest.fund_request_number)}
