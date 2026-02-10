@@ -82,7 +82,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       });
 
       // Navigate - ProtectedRoute will handle waiting for session restoration if needed
-      navigate('/dashboard');
+      navigate('/master-entry');
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message || 'Login failed. Please try again.');

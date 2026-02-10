@@ -565,7 +565,18 @@ const MasterEntry: React.FC = () => {
 
   // Normalize Aadhar number (remove spaces and special characters)
   const normalizeAadharNumber = (aadhar: string): string => {
-    return aadhar.replace(/\D/g, '');
+    if (!aadhar || typeof aadhar !== 'string') {
+      console.log('[normalizeAadharNumber] Invalid input:', { aadhar, type: typeof aadhar });
+      return '';
+    }
+    const normalized = aadhar.replace(/\D/g, '');
+    console.log('[normalizeAadharNumber]', { 
+      original: aadhar, 
+      normalized, 
+      originalLength: aadhar.length, 
+      normalizedLength: normalized.length 
+    });
+    return normalized;
   };
 
   // Find existing aadhar entry in current public_beneficiary_entries table
@@ -635,7 +646,16 @@ const MasterEntry: React.FC = () => {
   const handleVerifyAadhar = async () => {
     const aadharNumber = formData.aadharNumber;
 
+    console.log('[handleVerifyAadhar] Starting verification', { 
+      rawInput: aadharNumber, 
+      inputLength: aadharNumber?.length 
+    });
+
     if (!aadharNumber || aadharNumber.length !== 12) {
+      console.log('[handleVerifyAadhar] Validation failed', { 
+        aadharNumber, 
+        length: aadharNumber?.length 
+      });
       showError('Please enter a valid 12-digit Aadhar number');
       return;
     }
@@ -643,37 +663,131 @@ const MasterEntry: React.FC = () => {
     try {
       setIsVerifyingAadhar(true);
       const normalizedAadhar = normalizeAadharNumber(aadharNumber);
+      
+      console.log('[handleVerifyAadhar] Normalized Aadhar', { 
+        raw: aadharNumber, 
+        normalized: normalizedAadhar,
+        normalizedLength: normalizedAadhar.length
+      });
 
       // Query public_beneficiary_history table
-      // Fetch all records and filter by normalized Aadhar (handles spaces in DB)
-      const { data, error } = await supabase
-        .from('public_beneficiary_history')
-        .select('*')
-        .order('year', { ascending: false });
+      // Fetch ALL records using pagination to handle Supabase's 1000 record limit
+      console.log('[handleVerifyAadhar] Query strategy: Fetching all records with pagination');
+      
+      // Fetch all records using pagination (Supabase default limit is 1000)
+      let allRecords: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (error) {
-        console.error('Error verifying Aadhar:', error);
-        showError('Failed to verify Aadhar number. Please try again.');
-        return;
+      while (hasMore) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        
+        console.log(`[handleVerifyAadhar] Fetching page ${page + 1} (records ${from} to ${to})`);
+        
+        const { data, error, count } = await supabase
+          .from('public_beneficiary_history')
+          .select('*', { count: 'exact' })
+          .order('year', { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          console.error('[handleVerifyAadhar] Database query error:', error);
+          showError('Failed to verify Aadhar number. Please try again.');
+          return;
+        }
+
+        if (data && data.length > 0) {
+          allRecords = allRecords.concat(data);
+          console.log(`[handleVerifyAadhar] Page ${page + 1} fetched: ${data.length} records (total so far: ${allRecords.length})`);
+          
+          // Check if we've fetched all records
+          if (data.length < pageSize || (count !== null && allRecords.length >= count)) {
+            hasMore = false;
+            console.log(`[handleVerifyAadhar] All records fetched. Total: ${allRecords.length} (count: ${count})`);
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
       }
 
-      // Filter records by normalized Aadhar number (handles spaces in database)
-      const matchedRecords = (data || []).filter(record => {
-        const recordAadhar = normalizeAadharNumber(record.aadhar_number || '');
-        return recordAadhar === normalizedAadhar;
+      console.log('[handleVerifyAadhar] Query results', { 
+        totalRecords: allRecords.length,
+        sampleRecords: allRecords.slice(0, 3).map(r => ({
+          id: r.id,
+          aadhar_number: r.aadhar_number,
+          aadhar_length: r.aadhar_number?.length,
+          name: r.name,
+          year: r.year
+        }))
+      });
+
+      // Filter records by normalized Aadhar number (handles spaces, dashes, etc. in database)
+      const matchedRecords: any[] = [];
+      const unmatchedSamples: any[] = [];
+      
+      allRecords.forEach((record, index) => {
+        const recordAadharRaw = record.aadhar_number || '';
+        const recordAadharNormalized = normalizeAadharNumber(recordAadharRaw);
+        
+        // Log first few records for debugging
+        if (index < 5) {
+          console.log(`[handleVerifyAadhar] Record ${index + 1} comparison`, {
+            recordId: record.id,
+            raw: recordAadharRaw,
+            normalized: recordAadharNormalized,
+            normalizedLength: recordAadharNormalized.length,
+            inputNormalized: normalizedAadhar,
+            matches: recordAadharNormalized === normalizedAadhar
+          });
+        }
+        
+        if (recordAadharNormalized === normalizedAadhar) {
+          matchedRecords.push(record);
+        } else if (index < 10 && recordAadharNormalized.length === 12) {
+          // Store sample of unmatched records for debugging
+          unmatchedSamples.push({
+            raw: recordAadharRaw,
+            normalized: recordAadharNormalized,
+            name: record.name
+          });
+        }
+      });
+
+      console.log('[handleVerifyAadhar] Matching complete', {
+        totalRecords: allRecords.length,
+        matchedCount: matchedRecords.length,
+        normalizedInput: normalizedAadhar,
+        unmatchedSamples: unmatchedSamples.slice(0, 5)
       });
 
       if (matchedRecords.length > 0) {
+        console.log('[handleVerifyAadhar] Found matches', {
+          count: matchedRecords.length,
+          records: matchedRecords.map(r => ({
+            name: r.name,
+            year: r.year,
+            aadhar: r.aadhar_number
+          }))
+        });
         // Aadhar exists in history - store matched records for display in form
         setIsAadharVerified(true);
         setMatchedHistoryRecords(matchedRecords);
       } else {
+        console.log('[handleVerifyAadhar] No matches found', {
+          normalizedInput: normalizedAadhar,
+          totalRecordsChecked: allRecords.length,
+          sampleUnmatched: unmatchedSamples.slice(0, 3)
+        });
         // Aadhar doesn't exist - verification successful
         setIsAadharVerified(true);
         setMatchedHistoryRecords([]);
       }
     } catch (error: any) {
-      console.error('Error verifying Aadhar:', error);
+      console.error('[handleVerifyAadhar] Exception during verification:', error);
       showError(error.message || 'Failed to verify Aadhar number. Please try again.');
     } finally {
       setIsVerifyingAadhar(false);
