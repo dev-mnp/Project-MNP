@@ -40,7 +40,7 @@ type BeneficiaryType = 'district' | 'public' | 'institutions';
 const MasterEntry: React.FC = () => {
   const { user, isAuthenticated, isRestoringSession } = useAuth();
   const { canDelete, canCreate, canUpdate, canExport } = useRBAC();
-  const { showError, showSuccess, showWarning } = useNotifications();
+  const { showError, showSuccess, showWarning, showInfo } = useNotifications();
   const [beneficiaryTypeFilter, setBeneficiaryTypeFilter] = useState<BeneficiaryType>('district');
   const [isFormMode, setIsFormMode] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
@@ -57,6 +57,7 @@ const MasterEntry: React.FC = () => {
   const [exportType, setExportType] = useState<'all' | 'district' | 'public' | 'institutions'>('all');
   const [exporting, setExporting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [dateFilter, setDateFilter] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -326,6 +327,30 @@ const MasterEntry: React.FC = () => {
       });
     }
 
+    // Apply date filter
+    if (dateFilter.start || dateFilter.end) {
+      filtered = filtered.filter((record) => {
+        if (!record.createdAt) return false;
+        
+        const recordDate = new Date(record.createdAt);
+        recordDate.setHours(0, 0, 0, 0);
+        
+        if (dateFilter.start) {
+          const startDate = new Date(dateFilter.start);
+          startDate.setHours(0, 0, 0, 0);
+          if (recordDate < startDate) return false;
+        }
+        
+        if (dateFilter.end) {
+          const endDate = new Date(dateFilter.end);
+          endDate.setHours(23, 59, 59, 999);
+          if (recordDate > endDate) return false;
+        }
+        
+        return true;
+      });
+    }
+
     // Apply sorting
     if (sortColumn) {
       filtered.sort((a, b) => {
@@ -348,6 +373,10 @@ const MasterEntry: React.FC = () => {
           case 'aadharNumber':
             aValue = a.aadharNumber || '';
             bValue = b.aadharNumber || '';
+            break;
+          case 'gender':
+            aValue = a.gender || '';
+            bValue = b.gender || '';
             break;
           case 'article':
             aValue = getArticleById(a.articleId || '')?.name || '';
@@ -387,6 +416,10 @@ const MasterEntry: React.FC = () => {
           case 'articlesCount':
             aValue = a.selectedArticles?.length || 0;
             bValue = b.selectedArticles?.length || 0;
+            break;
+          case 'createdAt':
+            aValue = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            bValue = b.createdAt ? new Date(b.createdAt).getTime() : 0;
             break;
           default:
             return 0;
@@ -663,8 +696,20 @@ const MasterEntry: React.FC = () => {
       if (!formData.gender) {
         newErrors.gender = 'Gender is required';
       }
-      if (!formData.mobile || formData.mobile.length < 10) {
+      if (!formData.mobile) {
         newErrors.mobile = 'Valid mobile number is required';
+      } else {
+        // Validate comma-separated mobile numbers
+        const mobileNumbers = formData.mobile.split(',').map(num => num.trim()).filter(num => num.length > 0);
+        if (mobileNumbers.length === 0) {
+          newErrors.mobile = 'At least one mobile number is required';
+        } else {
+          // Check if all numbers are valid (10 digits)
+          const invalidNumbers = mobileNumbers.filter(num => num.length !== 10 || !/^\d{10}$/.test(num));
+          if (invalidNumbers.length > 0) {
+            newErrors.mobile = 'All mobile numbers must be exactly 10 digits';
+          }
+        }
       }
       if (!formData.articleId) {
         newErrors.articleId = 'Article is required';
@@ -998,6 +1043,58 @@ const MasterEntry: React.FC = () => {
           });
 
         if (error) throw error;
+
+        // Refresh records from database
+        const { data, error: fetchError } = await supabase
+          .from('public_beneficiary_entries')
+          .select(`
+            id,
+            application_number,
+            name,
+            aadhar_number,
+            is_handicapped,
+            gender,
+            female_status,
+            address,
+            mobile,
+            article_id,
+            quantity,
+            total_amount,
+            notes,
+            status,
+            created_at
+          `)
+          .order('created_at', { ascending: false });
+
+        if (fetchError) throw fetchError;
+
+        const publicRecords: MasterEntryRecord[] = (data || []).map((entry: any) => ({
+          id: entry.id,
+          applicationNumber: entry.application_number || '',
+          beneficiaryType: 'public' as const,
+          createdAt: entry.created_at,
+          aadharNumber: entry.aadhar_number,
+          name: entry.name,
+          handicapped: entry.is_handicapped,
+          gender: entry.gender as 'Male' | 'Female' | 'Transgender' | undefined,
+          femaleStatus: entry.female_status as 'Single Mother' | 'Widow' | 'Married' | 'Unmarried' | undefined,
+          address: entry.address,
+          mobile: entry.mobile,
+          articleId: entry.article_id,
+          quantity: entry.quantity,
+          costPerUnit: entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0,
+          totalValue: entry.total_amount,
+          comments: entry.notes || '',
+        }));
+
+        setRecords(publicRecords);
+        resetForm();
+        setIsFormMode(false);
+        // Scroll to top of page
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Show application number in popup for 10 seconds
+        showInfo(`Entry created successfully. Application Number: ${applicationNumber}`, 10000);
+        return;
       }
 
       // Refresh records from database
@@ -1046,7 +1143,9 @@ const MasterEntry: React.FC = () => {
       setRecords(publicRecords);
       resetForm();
       setIsFormMode(false);
-      showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+      // Scroll to top of page
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showSuccess('Entry updated successfully');
     } catch (error: any) {
       console.error('Failed to save public entry:', error);
       showError(error.message || 'Failed to save entry. Please try again.');
@@ -1149,6 +1248,12 @@ const MasterEntry: React.FC = () => {
         resetForm();
         setIsFormMode(false);
         setSaving(false);
+        // Scroll to top of page
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Show application number in popup for 10 seconds if it's a new entry
+        if (!editingRecordId && applicationNumber) {
+          showInfo(`Entry created successfully. Application Number: ${applicationNumber}`, 10000);
+        }
         return;
       } catch (error: any) {
         console.error('Failed to save district entry:', error);
@@ -1521,7 +1626,14 @@ const MasterEntry: React.FC = () => {
 
         resetForm();
         setIsFormMode(false);
-        showSuccess(editingRecordId ? 'Entry updated successfully' : 'Entry created successfully');
+        // Scroll to top of page
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (editingRecordId) {
+          showSuccess('Entry updated successfully');
+        } else {
+          // Show application number in popup for 10 seconds for new entries
+          showInfo(`Entry created successfully. Application Number: ${applicationNumber}`, 10000);
+        }
         setSaving(false);
         return;
       } catch (error: any) {
@@ -1570,18 +1682,21 @@ const MasterEntry: React.FC = () => {
             return [{
               'Application Number': record.applicationNumber || '',
               'Beneficiary Name': record.districtName || '',
-              'Aadhar Number': '',
-              'Handicapped Status': '',
-              'Beneficiary Type': 'District',
               'Requested Item': '',
-              'Item Type': '',
               'Quantity': 0,
               'Cost Per Unit': 0,
               'Total Value': 0,
               'Address': record.districtName || '',
               'Mobile': presidentMobile,
-              'Comments': '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Gender': '',
+              'Gender Category': '',
+              'Beneficiary Type': 'District',
+              'Item Type': '',
+              'Article Category': '',
               'Requested Item Tk': '',
+              'Comments': '',
             }];
           }
           return record.selectedArticles.map((article) => {
@@ -1589,18 +1704,21 @@ const MasterEntry: React.FC = () => {
             return {
               'Application Number': record.applicationNumber || '',
               'Beneficiary Name': record.districtName || '',
-              'Aadhar Number': '',
-              'Handicapped Status': '',
-              'Beneficiary Type': 'District',
               'Requested Item': article.articleName || '',
-              'Item Type': articleData?.item_type || '',
               'Quantity': article.quantity || 0,
-              'Cost Per Unit': articleData?.cost_per_unit || 0,
+              'Cost Per Unit': article.costPerUnit || articleData?.cost_per_unit || 0,
               'Total Value': article.totalValue || 0,
               'Address': record.districtName || '',
               'Mobile': presidentMobile,
-              'Comments': article.comments || '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Gender': '',
+              'Gender Category': '',
+              'Beneficiary Type': 'District',
+              'Item Type': articleData?.item_type || '',
+              'Article Category': articleData?.category || '',
               'Requested Item Tk': articleData?.article_name_tk || '',
+              'Comments': article.comments || '',
             };
           });
         });
@@ -1641,18 +1759,21 @@ const MasterEntry: React.FC = () => {
           return {
             'Application Number': entry.application_number || '',
             'Beneficiary Name': entry.name || '',
-            'Aadhar Number': entry.aadhar_number || '',
-            'Handicapped Status': entry.is_handicapped ? 'Yes' : 'No',
-            'Beneficiary Type': 'Public',
             'Requested Item': articleData?.article_name || '',
-            'Item Type': articleData?.item_type || '',
             'Quantity': entry.quantity || 0,
             'Cost Per Unit': articleData?.cost_per_unit || (entry.quantity > 0 ? (entry.total_amount / entry.quantity) : 0),
             'Total Value': entry.total_amount || 0,
             'Address': entry.address || '',
             'Mobile': entry.mobile || '',
-            'Comments': entry.notes || '',
+            'Aadhar Number': entry.aadhar_number || '',
+            'Handicapped Status': entry.is_handicapped ? 'Yes' : 'No',
+            'Gender': entry.gender || '',
+            'Gender Category': entry.gender === 'Female' ? (entry.female_status || '') : '',
+            'Beneficiary Type': 'Public',
+            'Item Type': articleData?.item_type || '',
+            'Article Category': articleData?.category || '',
             'Requested Item Tk': articleData?.article_name_tk || '',
+            'Comments': entry.notes || '',
           };
         });
         allExportData.push(...publicExportData);
@@ -1666,18 +1787,21 @@ const MasterEntry: React.FC = () => {
             return [{
               'Application Number': record.applicationNumber || '',
               'Beneficiary Name': record.institutionName || '',
-              'Aadhar Number': '',
-              'Handicapped Status': '',
-              'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
               'Requested Item': '',
-              'Item Type': '',
               'Quantity': 0,
               'Cost Per Unit': 0,
               'Total Value': 0,
               'Address': record.address || '',
               'Mobile': record.mobile || '',
-              'Comments': '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Gender': '',
+              'Gender Category': '',
+              'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
+              'Item Type': '',
+              'Article Category': '',
               'Requested Item Tk': '',
+              'Comments': '',
             }];
           }
           return record.selectedArticles.map((article) => {
@@ -1685,18 +1809,21 @@ const MasterEntry: React.FC = () => {
             return {
               'Application Number': record.applicationNumber || '',
               'Beneficiary Name': record.institutionName || '',
-              'Aadhar Number': '',
-              'Handicapped Status': '',
-              'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
               'Requested Item': article.articleName || '',
-              'Item Type': articleData?.item_type || '',
               'Quantity': article.quantity || 0,
               'Cost Per Unit': articleData?.cost_per_unit || 0,
               'Total Value': article.totalValue || 0,
               'Address': record.address || '',
               'Mobile': record.mobile || '',
-              'Comments': article.comments || '',
+              'Aadhar Number': '',
+              'Handicapped Status': '',
+              'Gender': '',
+              'Gender Category': '',
+              'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
+              'Item Type': articleData?.item_type || '',
+              'Article Category': articleData?.category || '',
               'Requested Item Tk': articleData?.article_name_tk || '',
+              'Comments': article.comments || '',
             };
           });
         });
@@ -1712,18 +1839,21 @@ const MasterEntry: React.FC = () => {
         exportToCSV(allExportData, filename, [
           'Application Number',
           'Beneficiary Name',
-          'Aadhar Number',
-          'Handicapped Status',
-          'Beneficiary Type',
           'Requested Item',
-          'Item Type',
           'Quantity',
           'Cost Per Unit',
           'Total Value',
           'Address',
           'Mobile',
-          'Comments',
+          'Aadhar Number',
+          'Handicapped Status',
+          'Gender',
+          'Gender Category',
+          'Beneficiary Type',
+          'Item Type',
+          'Article Category',
           'Requested Item Tk',
+          'Comments',
         ], showWarning);
 
         // Log export action
@@ -2313,11 +2443,18 @@ const MasterEntry: React.FC = () => {
             type="text"
             value={formData.mobile || ''}
             onChange={(e) => {
-              const value = e.target.value.replace(/\D/g, '');
+              // Allow digits and commas only
+              let value = e.target.value.replace(/[^\d,]/g, '');
+              // Prevent consecutive commas
+              value = value.replace(/,+/g, ',');
+              // Remove leading comma
+              if (value.startsWith(',')) {
+                value = value.substring(1);
+              }
               setFormData({ ...formData, mobile: value });
             }}
             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            placeholder="Enter mobile number"
+            placeholder="Enter mobile number(s) separated by comma (e.g., 1234567890,9876543210)"
           />
           {errors.mobile && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.mobile}</p>
@@ -2655,9 +2792,10 @@ const MasterEntry: React.FC = () => {
     const filteredAndSortedRecords = getFilteredAndSortedRecords();
 
     if (filteredAndSortedRecords.length === 0) {
+      const hasFilters = searchQuery.trim() || dateFilter.start || dateFilter.end;
       return (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          {searchQuery.trim() ? 'No records found matching your search' : `No records found for ${beneficiaryTypeFilter} type`}
+          {hasFilters ? 'No records found matching your filters' : `No records found for ${beneficiaryTypeFilter} type`}
         </div>
       );
     }
@@ -2724,6 +2862,17 @@ const MasterEntry: React.FC = () => {
                       </span>
                     </div>
                   </th>
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('createdAt')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Created At
+                      <span className={`text-xs ${sortColumn === 'createdAt' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('createdAt')}
+                      </span>
+                    </div>
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Actions
                   </th>
@@ -2750,6 +2899,17 @@ const MasterEntry: React.FC = () => {
                       Name
                       <span className={`text-xs ${sortColumn === 'name' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
                         {getSortIcon('name')}
+                      </span>
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('gender')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Gender
+                      <span className={`text-xs ${sortColumn === 'gender' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('gender')}
                       </span>
                     </div>
                   </th>
@@ -2794,6 +2954,17 @@ const MasterEntry: React.FC = () => {
                       Handicapped
                       <span className={`text-xs ${sortColumn === 'handicapped' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
                         {getSortIcon('handicapped')}
+                      </span>
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('createdAt')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Created At
+                      <span className={`text-xs ${sortColumn === 'createdAt' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('createdAt')}
                       </span>
                     </div>
                   </th>
@@ -2859,6 +3030,17 @@ const MasterEntry: React.FC = () => {
                       </span>
                     </div>
                   </th>
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                    onClick={() => handleSort('createdAt')}
+                  >
+                    <div className="flex items-center gap-1">
+                      Created At
+                      <span className={`text-xs ${sortColumn === 'createdAt' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('createdAt')}
+                      </span>
+                    </div>
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                     Actions
                   </th>
@@ -2872,7 +3054,8 @@ const MasterEntry: React.FC = () => {
               const canExpandDistrict = (beneficiaryTypeFilter === 'district' || beneficiaryTypeFilter === 'institutions') &&
                 record.selectedArticles && record.selectedArticles.length > 0;
               const canExpandPublic = beneficiaryTypeFilter === 'public' && (
-                record.address || record.mobile || record.quantity || record.comments
+                record.address || record.mobile || record.quantity || record.comments || 
+                (record.gender === 'Female' && record.femaleStatus)
               );
               const canExpand = canExpandDistrict || canExpandPublic;
 
@@ -2921,6 +3104,13 @@ const MasterEntry: React.FC = () => {
                             );
                           })()}
                         </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          }) : '-'}
+                        </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex items-center gap-2">
                             {canUpdate() && (
@@ -2964,6 +3154,9 @@ const MasterEntry: React.FC = () => {
                           {record.name}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {record.gender || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                           {record.aadharNumber}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
@@ -2974,6 +3167,13 @@ const MasterEntry: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                           {record.handicapped ? 'Yes' : 'No'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          }) : '-'}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex items-center gap-2">
@@ -3019,6 +3219,13 @@ const MasterEntry: React.FC = () => {
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
                         </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {record.createdAt ? new Date(record.createdAt).toLocaleDateString('en-IN', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit'
+                          }) : '-'}
+                        </td>
                         <td className="px-4 py-3 text-sm" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2">
                             {canUpdate() && (
@@ -3053,16 +3260,16 @@ const MasterEntry: React.FC = () => {
                       <td
                         colSpan={
                           beneficiaryTypeFilter === 'district' ? 6 :
-                          beneficiaryTypeFilter === 'public' ? 7 :
+                          beneficiaryTypeFilter === 'public' ? 8 :
                           7
                         }
                         className="px-4 py-4 bg-gray-50 dark:bg-gray-800"
                         onClick={(e) => e.stopPropagation()}
                       >
                         {beneficiaryTypeFilter === 'public' ? (
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-3">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-3">
                             {record.address && (
-                              <div className="col-span-2">
+                              <div className="md:col-span-2">
                                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Address:</span>
                                 <p className="text-sm text-gray-900 dark:text-white">{record.address}</p>
                               </div>
@@ -3079,8 +3286,14 @@ const MasterEntry: React.FC = () => {
                                 <p className="text-sm text-gray-900 dark:text-white">{record.quantity}</p>
                               </div>
                             )}
+                            {record.gender === 'Female' && record.femaleStatus && (
+                              <div>
+                                <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Female Status:</span>
+                                <p className="text-sm text-gray-900 dark:text-white">{record.femaleStatus}</p>
+                              </div>
+                            )}
                             {record.comments && (
-                              <div className="col-span-2 md:col-span-4">
+                              <div className="md:col-span-3">
                                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400 block mb-1">Comments:</span>
                                 <p className="text-sm text-gray-900 dark:text-white">{record.comments || '-'}</p>
                               </div>
@@ -3136,7 +3349,7 @@ const MasterEntry: React.FC = () => {
   return (
     <div className="p-4 sm:p-6">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-10 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 pb-4 mb-4 px-1">
+      <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 pb-4 mb-4 px-1 shadow-sm">
         <div className="flex flex-col gap-3 sm:gap-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
@@ -3162,6 +3375,35 @@ const MasterEntry: React.FC = () => {
             <div className="flex items-center gap-3 sm:gap-3 flex-shrink-0">
               {!isFormMode && (
                 <>
+                  {/* Date Filter - moved to right side */}
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">From:</label>
+                    <input
+                      type="date"
+                      value={dateFilter.start || ''}
+                      onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value || null })}
+                      className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm w-32"
+                    />
+                    <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">To:</label>
+                    <input
+                      type="date"
+                      value={dateFilter.end || ''}
+                      onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value || null })}
+                      min={dateFilter.start || undefined}
+                      className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm w-32"
+                    />
+                    {(dateFilter.start || dateFilter.end) && (
+                      <button
+                        onClick={() => setDateFilter({ start: null, end: null })}
+                        className="px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                        aria-label="Clear date filter"
+                        title="Clear date filter"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  
                   {canExport() && (
                     <button
                       onClick={handleExportClick}
@@ -3193,8 +3435,8 @@ const MasterEntry: React.FC = () => {
             </div>
           </div>
           
-          {/* Search Bar for District and Public */}
-          {(beneficiaryTypeFilter === 'district' || beneficiaryTypeFilter === 'public') && !isFormMode && (
+          {/* Search Bar for all beneficiary types */}
+          {!isFormMode && (
             <div className="flex items-center gap-2">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -3205,7 +3447,9 @@ const MasterEntry: React.FC = () => {
                   placeholder={
                     beneficiaryTypeFilter === 'district'
                       ? 'Search by application number or district name...'
-                      : 'Search by application number, name, or Aadhar...'
+                      : beneficiaryTypeFilter === 'public'
+                      ? 'Search by application number, name, or Aadhar...'
+                      : 'Search by application number or institution name...'
                   }
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                 />
