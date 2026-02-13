@@ -40,7 +40,7 @@ type BeneficiaryType = 'district' | 'public' | 'institutions';
 const MasterEntry: React.FC = () => {
   const { user, isAuthenticated, isRestoringSession } = useAuth();
   const { canDelete, canCreate, canUpdate, canExport } = useRBAC();
-  const { showError, showSuccess, showWarning, showInfo } = useNotifications();
+  const { showError, showSuccess, showWarning } = useNotifications();
   const [beneficiaryTypeFilter, setBeneficiaryTypeFilter] = useState<BeneficiaryType>('district');
   const [isFormMode, setIsFormMode] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
@@ -91,6 +91,9 @@ const MasterEntry: React.FC = () => {
 
   // Save loading state
   const [isSaving, setSaving] = useState(false);
+  
+  // Delete loading state
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Track loading state to prevent duplicate calls
   const isLoadingArticlesRef = useRef(false);
@@ -556,38 +559,75 @@ const MasterEntry: React.FC = () => {
   };
 
   const handleDeleteConfirmed = async (recordId: string) => {
-    // For district type, delete from database
-    if (beneficiaryTypeFilter === 'district') {
-      try {
-        const record = records.find((r) => r.id === recordId);
-        if (record && record.applicationNumber) {
-          await deleteDistrictBeneficiaryEntriesByApplicationNumber(record.applicationNumber);
+    setIsDeleting(true);
+    try {
+      // For district type, delete from database
+      if (beneficiaryTypeFilter === 'district') {
+        try {
+          const record = records.find((r) => r.id === recordId);
+          if (record && record.applicationNumber) {
+            await deleteDistrictBeneficiaryEntriesByApplicationNumber(record.applicationNumber);
 
-          // Refresh records from database
-          try {
-            const dbRecords = await fetchDistrictBeneficiaryEntriesGrouped();
-            setRecords(dbRecords);
-          } catch (refreshError) {
-            console.error('Failed to refresh records after delete:', refreshError);
-            // Remove from local state as fallback
-            setRecords(records.filter((r) => r.id !== recordId));
+            // Refresh records from database
+            try {
+              const dbRecords = await fetchDistrictBeneficiaryEntriesGrouped();
+              setRecords(dbRecords);
+            } catch (refreshError) {
+              console.error('Failed to refresh records after delete:', refreshError);
+              // Remove from local state as fallback
+              setRecords(records.filter((r) => r.id !== recordId));
+            }
+          } else {
+            showError('Record not found or missing application number.');
           }
-        } else {
-          showError('Record not found or missing application number.');
+        } catch (error: any) {
+          console.error('Failed to delete district entry:', error);
+          showError(error.message || 'Failed to delete record. Please try again.');
         }
-      } catch (error: any) {
-        console.error('Failed to delete district entry:', error);
-        showError(error.message || 'Failed to delete record. Please try again.');
-      }
-    } else if (beneficiaryTypeFilter === 'public') {
-      // Delete from database for public type
-      try {
+      } else if (beneficiaryTypeFilter === 'public') {
+        // Delete from database for public type
+        try {
+        // Get entry details before deletion for audit log
+        const { data: entryData } = await supabase
+          .from('public_beneficiary_entries')
+          .select('application_number, name, aadhar_number, article_id, quantity, total_amount, gender, female_status, address, mobile, is_handicapped, notes')
+          .eq('id', recordId)
+          .single();
+
         const { error } = await supabase
           .from('public_beneficiary_entries')
           .delete()
           .eq('id', recordId);
 
         if (error) throw error;
+
+        // Log audit action for DELETE
+        try {
+          await logAction(user?.id || null, 'DELETE', 'public_beneficiary', entryData?.application_number || recordId, {
+            entity_name: entryData?.application_number || recordId,
+            entity_summary: `Public Beneficiary Entry: ${entryData?.application_number || recordId}`,
+            deleted_values: entryData ? {
+              id: recordId,
+              application_number: entryData.application_number,
+              name: entryData.name,
+              aadhar_number: entryData.aadhar_number,
+              article_id: entryData.article_id,
+              quantity: entryData.quantity,
+              total_amount: entryData.total_amount,
+              gender: entryData.gender,
+              female_status: entryData.female_status,
+              address: entryData.address,
+              mobile: entryData.mobile,
+              is_handicapped: entryData.is_handicapped,
+              notes: entryData.notes,
+            } : {
+              id: recordId,
+            },
+          });
+        } catch (auditError) {
+          console.error('Failed to log audit action for DELETE:', auditError);
+          // Don't throw - audit logging should not break the main flow
+        }
 
         // Refresh records from database
         const { data, error: fetchError } = await supabase
@@ -632,40 +672,43 @@ const MasterEntry: React.FC = () => {
           comments: entry.notes || '',
         }));
 
-        setRecords(publicRecords);
-        // Show success only after both deletion and refresh succeed
-        showSuccess('Entry deleted successfully');
-      } catch (error: any) {
-        console.error('Failed to delete public entry:', error);
-        showError(error.message || 'Failed to delete record. Please try again.');
-      }
-    } else if (beneficiaryTypeFilter === 'institutions') {
-      // Delete from database for institutions type
-      try {
-        const record = records.find((r) => r.id === recordId);
-        if (record && record.applicationNumber) {
-          await deleteInstitutionBeneficiaryEntriesByApplicationNumber(record.applicationNumber);
-
-          // Refresh records from database
-          try {
-            const dbRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
-            setRecords(dbRecords);
-            // Show success only after both deletion and refresh succeed
-            showSuccess('Entry deleted successfully');
-          } catch (refreshError) {
-            console.error('Failed to refresh records after delete:', refreshError);
-            // Remove from local state as fallback
-            setRecords(records.filter((r) => r.id !== recordId));
-            // Still show success since deletion worked, but log the refresh error
-            showSuccess('Entry deleted successfully');
-          }
-        } else {
-          showError('Record not found or missing application number.');
+          setRecords(publicRecords);
+          // Show success only after both deletion and refresh succeed
+          showSuccess('Entry deleted successfully');
+        } catch (error: any) {
+          console.error('Failed to delete public entry:', error);
+          showError(error.message || 'Failed to delete record. Please try again.');
         }
-      } catch (error: any) {
-        console.error('Failed to delete institution entry:', error);
-        showError(error.message || 'Failed to delete record. Please try again.');
+      } else if (beneficiaryTypeFilter === 'institutions') {
+        // Delete from database for institutions type
+        try {
+          const record = records.find((r) => r.id === recordId);
+          if (record && record.applicationNumber) {
+            await deleteInstitutionBeneficiaryEntriesByApplicationNumber(record.applicationNumber);
+
+            // Refresh records from database
+            try {
+              const dbRecords = await fetchInstitutionBeneficiaryEntriesGrouped();
+              setRecords(dbRecords);
+              // Show success only after both deletion and refresh succeed
+              showSuccess('Entry deleted successfully');
+            } catch (refreshError) {
+              console.error('Failed to refresh records after delete:', refreshError);
+              // Remove from local state as fallback
+              setRecords(records.filter((r) => r.id !== recordId));
+              // Still show success since deletion worked, but log the refresh error
+              showSuccess('Entry deleted successfully');
+            }
+          } else {
+            showError('Record not found or missing application number.');
+          }
+        } catch (error: any) {
+          console.error('Failed to delete institution entry:', error);
+          showError(error.message || 'Failed to delete record. Please try again.');
+        }
       }
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -999,27 +1042,62 @@ const MasterEntry: React.FC = () => {
 
     try {
       if (updateRecordId) {
+        // Fetch old values before update for audit log
+        const { data: oldData } = await supabase
+          .from('public_beneficiary_entries')
+          .select('*')
+          .eq('id', updateRecordId)
+          .single();
+
         // Update existing record - use existing application number
+        const updateData = {
+          application_number: formData.applicationNumber,
+          name: formData.name,
+          aadhar_number: formData.aadharNumber,
+          is_handicapped: formData.handicapped || false,
+          gender: formData.gender || null,
+          female_status: formData.gender === 'Female' ? formData.femaleStatus || null : null,
+          address: formData.address,
+          mobile: formData.mobile,
+          article_id: formData.articleId,
+          quantity: quantity,
+          total_amount: totalValue,
+          notes: formData.comments || null,
+          updated_at: new Date().toISOString(),
+        };
+
         const { error } = await supabase
           .from('public_beneficiary_entries')
-          .update({
-            application_number: formData.applicationNumber,
-            name: formData.name,
-            aadhar_number: formData.aadharNumber,
-            is_handicapped: formData.handicapped || false,
-            gender: formData.gender || null,
-            female_status: formData.gender === 'Female' ? formData.femaleStatus || null : null,
-            address: formData.address,
-            mobile: formData.mobile,
-            article_id: formData.articleId,
-            quantity: quantity,
-            total_amount: totalValue,
-            notes: formData.comments || null,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq('id', updateRecordId);
 
         if (error) throw error;
+
+        // Log audit action for UPDATE
+        try {
+          const updatedFields = Object.keys(updateData);
+          const oldValues: Record<string, any> = {};
+          const newValues: Record<string, any> = {};
+
+          updatedFields.forEach((field) => {
+            if (oldData) {
+              oldValues[field] = oldData[field as keyof typeof oldData];
+            }
+            newValues[field] = updateData[field as keyof typeof updateData];
+          });
+
+          await logAction(user?.id || null, 'UPDATE', 'public_beneficiary', formData.applicationNumber || updateRecordId, {
+            entity_name: formData.applicationNumber || updateRecordId,
+            entity_summary: `Public Beneficiary Entry: ${formData.applicationNumber || updateRecordId}`,
+            old_values: oldValues,
+            new_values: newValues,
+            updated_fields: updatedFields,
+            affected_fields: updatedFields,
+          });
+        } catch (auditError) {
+          console.error('Failed to log audit action for UPDATE:', auditError);
+          // Don't throw - audit logging should not break the main flow
+        }
       } else {
         // Create new record - generate new application number
         const applicationNumber = await generateApplicationNumberFromDB('public');
@@ -1043,6 +1121,31 @@ const MasterEntry: React.FC = () => {
           });
 
         if (error) throw error;
+
+        // Log audit action for CREATE
+        try {
+          await logAction(user?.id || null, 'CREATE', 'public_beneficiary', applicationNumber, {
+            entity_name: applicationNumber,
+            entity_summary: `Public Beneficiary Entry: ${applicationNumber}`,
+            new_values: {
+              application_number: applicationNumber,
+              name: formData.name,
+              aadhar_number: formData.aadharNumber,
+              article_id: formData.articleId,
+              quantity: quantity,
+              total_amount: totalValue,
+              gender: formData.gender || null,
+              female_status: formData.gender === 'Female' ? formData.femaleStatus || null : null,
+              address: formData.address || null,
+              mobile: formData.mobile || null,
+              is_handicapped: formData.handicapped || false,
+              notes: formData.comments || null,
+            },
+          });
+        } catch (auditError) {
+          console.error('Failed to log audit action for CREATE:', auditError);
+          // Don't throw - audit logging should not break the main flow
+        }
 
         // Refresh records from database
         const { data, error: fetchError } = await supabase
@@ -1092,8 +1195,9 @@ const MasterEntry: React.FC = () => {
         setIsFormMode(false);
         // Scroll to top of page
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        // Show application number in popup for 10 seconds
-        showInfo(`Entry created successfully. Application Number: ${applicationNumber}`, 10000);
+        // Show application number with name in popup for 5 seconds (greenish color)
+        const displayName = formData.name || '';
+        showSuccess(`Entry created successfully. ${applicationNumber}${displayName ? `-${displayName}` : ''}`, 5000);
         return;
       }
 
@@ -1250,10 +1354,7 @@ const MasterEntry: React.FC = () => {
         setSaving(false);
         // Scroll to top of page
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        // Show application number in popup for 10 seconds if it's a new entry
-        if (!editingRecordId && applicationNumber) {
-          showInfo(`Entry created successfully. Application Number: ${applicationNumber}`, 10000);
-        }
+        // District entries don't show popup with application number
         return;
       } catch (error: any) {
         console.error('Failed to save district entry:', error);
@@ -1631,8 +1732,9 @@ const MasterEntry: React.FC = () => {
         if (editingRecordId) {
           showSuccess('Entry updated successfully');
         } else {
-          // Show application number in popup for 10 seconds for new entries
-          showInfo(`Entry created successfully. Application Number: ${applicationNumber}`, 10000);
+          // Show application number with name in popup for 8 seconds for new entries (greenish color)
+          const displayName = formData.institutionName || '';
+          showSuccess(`Entry created successfully. ${applicationNumber}${displayName ? `-${displayName}` : ''}`, 8000);
         }
         setSaving(false);
         return;
@@ -3347,7 +3449,17 @@ const MasterEntry: React.FC = () => {
   };
 
   return (
-    <div className="p-4 sm:p-6">
+    <div className="p-4 sm:p-6 relative">
+      {/* Full-screen loading overlay for deletion */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 flex flex-col items-center gap-4 shadow-xl">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-400" />
+            <p className="text-sm font-medium text-gray-900 dark:text-white">Deleting record...</p>
+          </div>
+        </div>
+      )}
+      
       {/* Sticky Header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 pb-4 mb-4 px-1 shadow-sm">
         <div className="flex flex-col gap-3 sm:gap-4">
