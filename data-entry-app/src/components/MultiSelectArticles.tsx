@@ -14,6 +14,7 @@ interface MultiSelectArticlesProps {
   required?: boolean;
   districtId?: string;
   showArticleFRFields?: boolean; // If true, show cheque_in_favour and supplier_article_name in ArticleRow
+  defaultCostToZero?: boolean; // If true, set costPerUnit to 0 when selecting articles (for Fund Request Article type)
 }
 
 const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
@@ -24,6 +25,7 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
   required = false,
   districtId,
   showArticleFRFields = false,
+  defaultCostToZero = false,
 }) => {
   const { showWarning } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
@@ -119,10 +121,12 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
     // Check if article is Aid type - Aid articles should always have zero cost
     const isAidArticle = article.itemType === 'Aid';
     
-    let costPerUnit = isAidArticle ? 0 : article.costPerUnit;
+    // If defaultCostToZero is true (Fund Request Article type), set cost to 0
+    // Otherwise, use article's cost or 0 for Aid articles
+    let costPerUnit = defaultCostToZero ? 0 : (isAidArticle ? 0 : article.costPerUnit);
     
-    // If district is selected and article has original cost = 0 and is NOT an Aid article, check for custom cost
-    if (districtId && article.costPerUnit === 0 && !isAidArticle) {
+    // If district is selected and article has original cost = 0 and is NOT an Aid article and NOT defaultCostToZero, check for custom cost
+    if (districtId && article.costPerUnit === 0 && !isAidArticle && !defaultCostToZero) {
       const customCost = customCosts.get(article.id);
       if (customCost !== undefined) {
         costPerUnit = customCost;
@@ -280,13 +284,15 @@ const MultiSelectArticles: React.FC<MultiSelectArticlesProps> = ({
           {selectedArticles.map((article, index) => {
             // Find the original article to get original cost
             const originalArticle = articles.find(a => a.id === article.articleId);
+            // If defaultCostToZero is true (Fund Request Article), pass 0 as originalCostPerUnit to make it editable
+            const originalCost = defaultCostToZero ? 0 : originalArticle?.costPerUnit;
             return (
               <ArticleRow
                 key={`${article.articleId}-${index}`}
                 article={article}
                 onUpdate={(updated) => handleArticleUpdate(index, updated)}
                 onRemove={() => handleArticleRemove(index)}
-                originalCostPerUnit={originalArticle?.costPerUnit}
+                originalCostPerUnit={originalCost}
                 showArticleFRFields={showArticleFRFields}
               />
             );

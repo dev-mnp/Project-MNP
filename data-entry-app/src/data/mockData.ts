@@ -29,6 +29,7 @@ export interface ArticleSelection {
   comments?: string; // Optional, kept for backward compatibility
   cheque_in_favour?: string; // For Article fund requests
   supplier_article_name?: string; // For Article fund requests
+  description?: string; // For Article fund requests
 }
 
 export interface MasterEntryRecord {

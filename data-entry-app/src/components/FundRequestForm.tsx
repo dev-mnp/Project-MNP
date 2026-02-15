@@ -5,11 +5,11 @@ import {
   fetchFundRequestById,
   createFundRequest,
   updateFundRequest,
-  fetchExistingAidTypes,
   type FundRequest,
   type FundRequestRecipient,
 } from '../services/fundRequestService';
 import { fetchAllArticles, type ArticleRecord } from '../services/articlesService';
+import { getConsolidatedOrders } from '../services/orderConsolidationService';
 import {
   fetchDistrictBeneficiariesForDropdown,
   fetchPublicBeneficiariesForDropdown,
@@ -18,6 +18,8 @@ import {
   fetchUsedBeneficiariesForFundRequest,
   type BeneficiaryDropdownOption,
 } from '../services/beneficiaryService';
+import { fetchDistricts } from '../services/districtsService';
+import type { District } from '../data/mockData';
 import { useNotifications } from '../contexts/NotificationContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 import MultiSelectArticles from './MultiSelectArticles';
@@ -27,6 +29,7 @@ interface RecipientFormData extends Omit<FundRequestRecipient, 'id' | 'fund_requ
   beneficiaryType?: 'District' | 'Public' | 'Institutions' | 'Others';
   beneficiaryOptions?: BeneficiaryDropdownOption[];
   loadingBeneficiaries?: boolean;
+  selectedDistrictId?: string;
 }
 
 const FundRequestForm: React.FC = () => {
@@ -82,17 +85,20 @@ const FundRequestForm: React.FC = () => {
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Aid type autocomplete
-  const [existingAidTypes, setExistingAidTypes] = useState<string[]>([]);
-  const [aidTypeInput, setAidTypeInput] = useState('');
-  const [showAidTypeSuggestions, setShowAidTypeSuggestions] = useState(false);
-  const [loadingAidTypes, setLoadingAidTypes] = useState(false);
+  // Aid type dropdown
+  const [aidArticles, setAidArticles] = useState<ArticleRecord[]>([]);
+  const [loadingAidArticles, setLoadingAidArticles] = useState(false);
+
+  // Districts (for district filter in Aid)
+  const [districts, setDistricts] = useState<District[]>([]);
+  const [loadingDistricts, setLoadingDistricts] = useState(false);
 
   useEffect(() => {
     loadArticles();
     loadUsedBeneficiaries();
     if (fundRequestType === 'Aid') {
-      loadExistingAidTypes();
+      loadAidArticles();
+      loadDistricts();
     }
     if (id) {
       loadFundRequest();
@@ -101,11 +107,18 @@ const FundRequestForm: React.FC = () => {
 
   useEffect(() => {
     if (fundRequestType === 'Aid') {
-      loadExistingAidTypes();
+      loadAidArticles();
     }
     // Reload articles when fund request type changes to filter correctly
     loadArticles();
   }, [fundRequestType]);
+
+  // Auto-fill supplier state as "Tamil Nadu" when Fund Request type is Article
+  useEffect(() => {
+    if (fundRequestType === 'Article' && !supplierState) {
+      setSupplierState('Tamil Nadu');
+    }
+  }, [fundRequestType, supplierState]);
 
   // Reload beneficiaries when aid_type changes
   useEffect(() => {
@@ -133,17 +146,32 @@ const FundRequestForm: React.FC = () => {
     }
   };
 
-  // Load existing aid types
-  const loadExistingAidTypes = async () => {
+  // Load Aid articles for dropdown
+  const loadAidArticles = async () => {
     try {
-      setLoadingAidTypes(true);
-      const types = await fetchExistingAidTypes();
-      setExistingAidTypes(types);
+      setLoadingAidArticles(true);
+      const allArticles = await fetchAllArticles(true);
+      const aidArticlesList = allArticles.filter(article => article.item_type === 'Aid');
+      setAidArticles(aidArticlesList);
     } catch (error) {
-      console.error('Failed to load existing aid types:', error);
+      console.error('Failed to load Aid articles:', error);
       // Don't show error to user, just continue
     } finally {
-      setLoadingAidTypes(false);
+      setLoadingAidArticles(false);
+    }
+  };
+
+  // Load districts
+  const loadDistricts = async () => {
+    try {
+      setLoadingDistricts(true);
+      const fetchedDistricts = await fetchDistricts();
+      setDistricts(fetchedDistricts);
+    } catch (error) {
+      console.error('Failed to load districts:', error);
+      // Don't show error to user, just continue
+    } finally {
+      setLoadingDistricts(false);
     }
   };
 
@@ -160,8 +188,52 @@ const FundRequestForm: React.FC = () => {
       const data = await fetchAllArticles(true);
       // Filter articles by item_type based on fund request type
       if (fundRequestType === 'Article') {
-        // For Article fund requests, only show articles where item_type = 'Article'
-        setArticles(data.filter(a => a.item_type === 'Article'));
+        // For Article fund requests, get split article names from order management
+        try {
+          const consolidatedOrders = await getConsolidatedOrders();
+          const splitArticleNames = new Set<string>();
+          
+          // Collect all split article names from consolidated orders
+          consolidatedOrders.articles.forEach(article => {
+            if (article.itemType === 'Article') {
+              splitArticleNames.add(article.articleName);
+            }
+          });
+          
+          // Get original articles where item_type = 'Article'
+          const originalArticles = data.filter(a => a.item_type === 'Article');
+          
+          // Create a map of original articles by name for quick lookup
+          const originalArticlesMap = new Map<string, ArticleRecord>();
+          originalArticles.forEach(article => {
+            originalArticlesMap.set(article.article_name, article);
+          });
+          
+          // Combine original articles and split articles
+          const combinedArticles: ArticleRecord[] = [...originalArticles];
+          
+          // Add split articles that don't exist in original articles
+          splitArticleNames.forEach(splitName => {
+            if (!originalArticlesMap.has(splitName)) {
+              // Create a virtual article record for the split name
+              combinedArticles.push({
+                id: splitName, // Use split name as ID
+                article_name: splitName,
+                article_name_tk: undefined,
+                cost_per_unit: 0, // Default to 0 for Fund Request Article
+                item_type: 'Article',
+                category: undefined,
+                is_active: true,
+              });
+            }
+          });
+          
+          setArticles(combinedArticles);
+        } catch (consolidationError) {
+          console.error('Failed to load consolidated orders, using original articles only:', consolidationError);
+          // Fallback to original articles if consolidation fails
+          setArticles(data.filter(a => a.item_type === 'Article'));
+        }
       } else {
         // For Aid fund requests, show all articles (existing behavior)
         setArticles(data);
@@ -181,7 +253,6 @@ const FundRequestForm: React.FC = () => {
       if (data) {
         setFormData(data);
         setFundRequestType(data.fund_request_type);
-        setAidTypeInput(data.aid_type || '');
         if (data.recipients) {
           const loadedRecipients = data.recipients.map(r => ({
             beneficiaryType: r.beneficiary_type,
@@ -219,6 +290,7 @@ const FundRequestForm: React.FC = () => {
             totalValue: a.value,
             supplier_article_name: a.supplier_article_name,
             cheque_in_favour: a.cheque_in_favour,
+            description: a.description,
           }));
           setSelectedArticles(articleSelections);
           
@@ -253,33 +325,56 @@ const FundRequestForm: React.FC = () => {
     }
   };
 
-  const loadBeneficiaries = async (type: 'District' | 'Public' | 'Institutions' | 'Others', recipientIndex: number) => {
+  const loadBeneficiaries = async (type: 'District' | 'Public' | 'Institutions' | 'Others', recipientIndex: number, districtId?: string) => {
     // Get current aid_type for filtering
     const currentAidType = formData.aid_type;
+    // Get selected district ID - use provided parameter or from current recipient state
+    const currentRecipient = recipients[recipientIndex];
+    const selectedDistrictId = districtId !== undefined ? districtId : currentRecipient?.selectedDistrictId;
     
-    // Check cache first (but only if no aid_type filter is applied)
-    if (beneficiaryCache[type] && !currentAidType) {
-      // Only use cache if no aid_type filter is applied
+    // Check cache first (but only if no aid_type filter and no district filter is applied)
+    // When district is selected, we need individual entries with aid types, not grouped cache
+    // Always skip cache when districtId is provided (for District type) or when aidType is provided
+    const shouldUseCache = beneficiaryCache[type] && !currentAidType && !selectedDistrictId;
+    
+    if (shouldUseCache) {
+      // Only use cache if no aid_type filter and no district filter is applied
       // Filter out already selected beneficiaries (current session + saved)
       // Don't exclude current recipient's selection
       setRecipients(prev => {
         const currentRecipient = prev[recipientIndex];
         const currentSelection = currentRecipient?.beneficiary;
-        let currentAppNumber: string | null = null;
+        let currentIdentifier: string | null = null;
         if (currentSelection) {
-          const match = currentSelection.match(/^([^-]+)/);
-          if (match) {
-            currentAppNumber = match[1].trim();
+          // For district beneficiaries, use the display_text directly (since that's what's stored in usedBeneficiaries)
+          // For other types, extract app number from display text
+          if (type === 'District') {
+            currentIdentifier = currentSelection; // Use display_text directly for district
+          } else {
+            const match = currentSelection.match(/^([^-]+)/);
+            if (match) {
+              currentIdentifier = match[1].trim();
+            }
           }
         }
         
         const allExcluded = new Set([...selectedBeneficiaries, ...usedBeneficiaries]);
         // Don't exclude the current recipient's selection (if any)
-        if (currentAppNumber) {
-          allExcluded.delete(currentAppNumber);
+        if (currentIdentifier) {
+          allExcluded.delete(currentIdentifier);
         }
         
-        const filteredData = beneficiaryCache[type]!.filter(option => !allExcluded.has(option.application_number));
+        // For district entries, filter by display_text (since usedBeneficiaries contains full display_text for districts)
+        // For other types, filter by application_number
+        const filteredData = beneficiaryCache[type]!.filter(option => {
+          if (type === 'District') {
+            // For district, check if the display_text is in the excluded set
+            return !allExcluded.has(option.display_text);
+          } else {
+            // For other types, check if the application_number is in the excluded set
+            return !allExcluded.has(option.application_number);
+          }
+        });
         
         const updated = [...prev];
         updated[recipientIndex] = {
@@ -307,7 +402,7 @@ const FundRequestForm: React.FC = () => {
       
       switch (type) {
         case 'District':
-          data = await fetchDistrictBeneficiariesForDropdown(currentAidType);
+          data = await fetchDistrictBeneficiariesForDropdown(currentAidType, selectedDistrictId);
           break;
         case 'Public':
           data = await fetchPublicBeneficiariesForDropdown(currentAidType);
@@ -320,8 +415,9 @@ const FundRequestForm: React.FC = () => {
           break;
       }
 
-      // Update cache (only if no aid_type filter, otherwise cache is per aid_type)
-      if (!currentAidType) {
+      // Update cache (only if no aid_type filter and no district filter, otherwise cache is per filter)
+      // Don't cache when district is selected because we want individual entries, not grouped
+      if (!currentAidType && !selectedDistrictId) {
         setBeneficiaryCache(prev => ({ ...prev, [type]: data }));
       }
 
@@ -331,22 +427,38 @@ const FundRequestForm: React.FC = () => {
         // Get current selected beneficiaries (excluding current recipient's selection)
         const currentRecipient = prev[recipientIndex];
         const currentSelection = currentRecipient?.beneficiary;
-        let currentAppNumber: string | null = null;
+        let currentIdentifier: string | null = null;
         if (currentSelection) {
-          const match = currentSelection.match(/^([^-]+)/);
-          if (match) {
-            currentAppNumber = match[1].trim();
+          // For district beneficiaries, use the display_text directly (since that's what's stored in usedBeneficiaries)
+          // For other types, extract app number from display text
+          if (type === 'District') {
+            currentIdentifier = currentSelection; // Use display_text directly for district
+          } else {
+            const match = currentSelection.match(/^([^-]+)/);
+            if (match) {
+              currentIdentifier = match[1].trim();
+            }
           }
         }
         
         // Get latest selected beneficiaries state
         const allExcluded = new Set([...selectedBeneficiaries, ...usedBeneficiaries]);
         // Don't exclude the current recipient's selection (if any)
-        if (currentAppNumber) {
-          allExcluded.delete(currentAppNumber);
+        if (currentIdentifier) {
+          allExcluded.delete(currentIdentifier);
         }
         
-        const filteredData = data.filter(option => !allExcluded.has(option.application_number));
+        // For district entries, filter by display_text (since usedBeneficiaries contains full display_text for districts)
+        // For other types, filter by application_number
+        const filteredData = data.filter(option => {
+          if (type === 'District') {
+            // For district, check if the display_text is in the excluded set
+            return !allExcluded.has(option.display_text);
+          } else {
+            // For other types, check if the application_number is in the excluded set
+            return !allExcluded.has(option.application_number);
+          }
+        });
 
         const updated = [...prev];
         updated[recipientIndex] = {
@@ -541,6 +653,7 @@ const FundRequestForm: React.FC = () => {
             supplier_article_name: article.supplier_article_name || details.supplier_article_name,
             cheque_in_favour: article.cheque_in_favour || details.cheque_in_favour,
             cheque_sl_no: details.cheque_sl_no, // Still from articleDetails (not in ArticleRow yet)
+            description: article.description,
           };
         });
 
@@ -623,31 +736,57 @@ const FundRequestForm: React.FC = () => {
         
         // Remove old selection if it existed
         if (oldRecipient.beneficiary) {
-          const oldAppNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
-          if (oldAppNumberMatch) {
-            updatedSet.delete(oldAppNumberMatch[1].trim());
+          // For district beneficiaries, use the display_text (to match usedBeneficiaries)
+          // For other types, extract app number from display text
+          if (oldRecipient.beneficiaryType === 'District') {
+            // Use display_text for district entries to match usedBeneficiaries
+            updatedSet.delete(oldRecipient.beneficiary);
+          } else {
+            const oldAppNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
+            if (oldAppNumberMatch) {
+              updatedSet.delete(oldAppNumberMatch[1].trim());
+            }
           }
         }
         
         // Add new selection
         if (value) {
-          const appNumberMatch = value.match(/^([^-]+)/);
-          if (appNumberMatch) {
-            updatedSet.add(appNumberMatch[1].trim());
-          }
+          const recipient = updated[index];
           
           // Auto-populate fund_requested from beneficiary option
-          const recipient = updated[index];
           if (recipient.beneficiaryOptions) {
             const selectedOption = recipient.beneficiaryOptions.find(
               opt => opt.display_text === value
             );
-            if (selectedOption && selectedOption.total_amount) {
+            if (selectedOption) {
+              // For district beneficiaries, use the display_text (to match usedBeneficiaries)
+              // For other types, extract app number from display text
+              if (recipient.beneficiaryType === 'District') {
+                // Use display_text for district entries to match usedBeneficiaries
+                updatedSet.add(value);
+              } else {
+                const appNumberMatch = value.match(/^([^-]+)/);
+                if (appNumberMatch) {
+                  updatedSet.add(appNumberMatch[1].trim());
+                }
+              }
+              
               // Update fund_requested with the total_amount from beneficiary
-              updated[index] = {
-                ...updated[index],
-                fund_requested: selectedOption.total_amount,
-              };
+              if (selectedOption.total_amount) {
+                updated[index] = {
+                  ...updated[index],
+                  fund_requested: selectedOption.total_amount,
+                };
+              }
+              
+              // Auto-fill aadhar_number for public beneficiaries if available and field is empty
+              if (recipient.beneficiaryType === 'Public' && selectedOption.aadhar_number && !updated[index].aadhar_number) {
+                updated[index] = {
+                  ...updated[index],
+                  aadhar_number: selectedOption.aadhar_number,
+                };
+              }
+              
               setRecipients(updated);
             }
           }
@@ -664,13 +803,24 @@ const FundRequestForm: React.FC = () => {
     
     // Remove old beneficiary from tracking if it existed
     if (oldRecipient.beneficiary) {
-      const appNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
-      if (appNumberMatch) {
+      // For district beneficiaries, use the display_text (to match usedBeneficiaries)
+      // For other types, extract app number from display text
+      if (oldRecipient.beneficiaryType === 'District') {
+        // Use display_text for district entries to match usedBeneficiaries
         setSelectedBeneficiaries(prev => {
           const updatedSet = new Set(prev);
-          updatedSet.delete(appNumberMatch[1].trim());
+          updatedSet.delete(oldRecipient.beneficiary!);
           return updatedSet;
         });
+      } else {
+        const appNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
+        if (appNumberMatch) {
+          setSelectedBeneficiaries(prev => {
+            const updatedSet = new Set(prev);
+            updatedSet.delete(appNumberMatch[1].trim());
+            return updatedSet;
+          });
+        }
       }
     }
     
@@ -679,6 +829,7 @@ const FundRequestForm: React.FC = () => {
       beneficiaryType: type,
       beneficiary: '', // Clear beneficiary when type changes
       beneficiaryOptions: undefined,
+      selectedDistrictId: type === 'District' ? updated[index].selectedDistrictId : undefined, // Keep district if still District type
     };
     setRecipients(updated);
 
@@ -785,66 +936,34 @@ const FundRequestForm: React.FC = () => {
         {/* Aid Form */}
         {fundRequestType === 'Aid' && (
           <div className="space-y-6">
-            {/* Aid Type Input */}
-            <div className="relative">
+            {/* Aid Type Dropdown */}
+            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Aid Type
+                Aid Type <span className="text-red-500">*</span>
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={aidTypeInput}
-                  onChange={(e) => {
-                    setAidTypeInput(e.target.value);
-                    setFormData(prev => ({ ...prev, aid_type: e.target.value }));
-                    setShowAidTypeSuggestions(true);
-                  }}
-                  onFocus={() => setShowAidTypeSuggestions(true)}
-                  onBlur={() => {
-                    // Delay hiding suggestions to allow click on suggestion
-                    setTimeout(() => setShowAidTypeSuggestions(false), 200);
-                  }}
-                  placeholder="Enter aid type (e.g., Medical Aid, Education Aid, Accident Aid)"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-                {loadingAidTypes && (
-                  <div className="absolute right-3 top-2.5">
-                    <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                  </div>
-                )}
-                {showAidTypeSuggestions && aidTypeInput && existingAidTypes.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto">
-                    {existingAidTypes
-                      .filter(type => 
-                        type.toLowerCase().includes(aidTypeInput.toLowerCase())
-                      )
-                      .map((type, index) => (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() => {
-                            setAidTypeInput(type);
-                            setFormData(prev => ({ ...prev, aid_type: type }));
-                            setShowAidTypeSuggestions(false);
-                          }}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                          {type}
-                        </button>
-                      ))}
-                    {existingAidTypes.filter(type => 
-                      type.toLowerCase().includes(aidTypeInput.toLowerCase())
-                    ).length === 0 && (
-                      <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
-                        No matching aid types found. Press Enter to create new.
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              {existingAidTypes.length > 0 && (
+              <select
+                value={formData.aid_type || ''}
+                onChange={(e) => {
+                  setFormData(prev => ({ ...prev, aid_type: e.target.value || undefined }));
+                }}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                disabled={loadingAidArticles}
+              >
+                <option value="">Select Aid Type</option>
+                {aidArticles.map((article) => (
+                  <option key={article.id} value={article.article_name}>
+                    {article.article_name}
+                  </option>
+                ))}
+              </select>
+              {loadingAidArticles && (
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {existingAidTypes.length} existing aid type{existingAidTypes.length > 1 ? 's' : ''} available. Start typing to search.
+                  Loading aid types...
+                </p>
+              )}
+              {!loadingAidArticles && aidArticles.length === 0 && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  No Aid articles found. Please add Aid articles in Article Management first.
                 </p>
               )}
             </div>
@@ -906,24 +1025,59 @@ const FundRequestForm: React.FC = () => {
                       )}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Beneficiary Type */}
+                      {/* Beneficiary Type with District Dropdown inline */}
                       <div>
                         <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                           Beneficiary Type <span className="text-red-500">*</span>
                         </label>
-                        <select
-                          value={recipient.beneficiaryType || ''}
-                          onChange={(e) => handleBeneficiaryTypeChange(index, e.target.value as any || undefined)}
-                          className={`w-full px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
-                            errors[`beneficiary_type_${index}`] ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
-                          }`}
-                        >
-                          <option value="">Select Type</option>
-                          <option value="District">District</option>
-                          <option value="Public">Public</option>
-                          <option value="Institutions">Institutions</option>
-                          <option value="Others">Others</option>
-                        </select>
+                        <div className="flex gap-2">
+                          <select
+                            value={recipient.beneficiaryType || ''}
+                            onChange={(e) => handleBeneficiaryTypeChange(index, e.target.value as any || undefined)}
+                            className={`flex-1 px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
+                              errors[`beneficiary_type_${index}`] ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                            }`}
+                          >
+                            <option value="">Select Type</option>
+                            <option value="District">District</option>
+                            <option value="Public">Public</option>
+                            <option value="Institutions">Institutions</option>
+                            <option value="Others">Others</option>
+                          </select>
+                          {/* District Dropdown - Only shown when beneficiary type is District */}
+                          {recipient.beneficiaryType === 'District' && (
+                            <select
+                              value={recipient.selectedDistrictId || ''}
+                              onChange={(e) => {
+                                const districtIdValue = e.target.value || undefined;
+                                const updated = [...recipients];
+                                updated[index] = {
+                                  ...updated[index],
+                                  selectedDistrictId: districtIdValue,
+                                  beneficiary: '', // Clear beneficiary when district changes
+                                  beneficiaryOptions: undefined, // Clear options to force reload
+                                  loadingBeneficiaries: true, // Show loading state
+                                };
+                                setRecipients(updated);
+                                // Reload beneficiaries with new district filter, passing districtId directly
+                                // Use setTimeout to ensure state is updated before calling loadBeneficiaries
+                                setTimeout(() => {
+                                  loadBeneficiaries('District', index, districtIdValue);
+                                }, 0);
+                              }}
+                              className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                              disabled={loadingDistricts}
+                              title="Filter by District"
+                            >
+                              <option value="">All Districts</option>
+                              {districts.map((district) => (
+                                <option key={district.id} value={district.id}>
+                                  {district.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
                         {errors[`beneficiary_type_${index}`] && (
                           <p className="mt-1 text-xs text-red-500">{errors[`beneficiary_type_${index}`]}</p>
                         )}
@@ -960,8 +1114,8 @@ const FundRequestForm: React.FC = () => {
                               {recipient.beneficiaryType ? 'Select Beneficiary' : 'Select Beneficiary Type first'}
                             </option>
                             {recipient.beneficiaryOptions && recipient.beneficiaryOptions.length > 0 ? (
-                              recipient.beneficiaryOptions.map((option) => (
-                                <option key={option.application_number} value={option.display_text}>
+                              recipient.beneficiaryOptions.map((option, optIndex) => (
+                                <option key={`${option.application_number}-${optIndex}`} value={option.display_text}>
                                   {option.display_text}
                                 </option>
                               ))
@@ -1018,7 +1172,7 @@ const FundRequestForm: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Fund Requested */}
+                      {/* Fund Requested and Aadhaar No in same row */}
                       <div>
                         <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                           Fund Requested <span className="text-red-500">*</span>
@@ -1038,23 +1192,10 @@ const FundRequestForm: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Cheque in Favour */}
+                      {/* Aadhaar No - moved to right of Fund Requested */}
                       <div>
                         <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                          Cheque in Favour
-                        </label>
-                        <input
-                          type="text"
-                          value={recipient.cheque_in_favour || ''}
-                          onChange={(e) => handleRecipientChange(index, 'cheque_in_favour', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                      </div>
-
-                      {/* AAdhar No */}
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                          AAdhar No <span className="text-red-500">*</span>
+                          Aadhaar No <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
@@ -1068,35 +1209,22 @@ const FundRequestForm: React.FC = () => {
                           className={`w-full px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
                             errors[`aadhar_number_${index}`] ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
                           }`}
-                          placeholder="Enter 12-digit Aadhar number"
+                          placeholder="Enter 12-digit Aadhaar number"
                         />
                         {errors[`aadhar_number_${index}`] && (
                           <p className="mt-1 text-xs text-red-500">{errors[`aadhar_number_${index}`]}</p>
                         )}
                       </div>
 
-                      {/* Cheque Sl No */}
-                      <div>
+                      {/* Cheque/RTGS in Favour - moved to end, full width */}
+                      <div className="md:col-span-2">
                         <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                          Cheque Sl No
+                          Cheque/RTGS in Favour
                         </label>
                         <input
                           type="text"
-                          value={recipient.cheque_sl_no || ''}
-                          onChange={(e) => handleRecipientChange(index, 'cheque_sl_no', e.target.value)}
-                          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                      </div>
-
-                      {/* Details */}
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                          Details
-                        </label>
-                        <textarea
-                          value={recipient.details || ''}
-                          onChange={(e) => handleRecipientChange(index, 'details', e.target.value)}
-                          rows={2}
+                          value={recipient.cheque_in_favour || ''}
+                          onChange={(e) => handleRecipientChange(index, 'cheque_in_favour', e.target.value)}
                           className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         />
                       </div>
@@ -1250,6 +1378,7 @@ const FundRequestForm: React.FC = () => {
                 onArticlesChange={handleArticlesChange}
                 required
                 showArticleFRFields={true}
+                defaultCostToZero={true}
               />
               
               {selectedArticles.length > 0 && (
@@ -1269,18 +1398,20 @@ const FundRequestForm: React.FC = () => {
           </div>
         )}
 
-        {/* Notes */}
-        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Notes
-          </label>
-          <textarea
-            value={formData.notes || ''}
-            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            rows={3}
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          />
-        </div>
+        {/* Notes - Only show for Aid type */}
+        {fundRequestType === 'Aid' && (
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Notes
+            </label>
+            <textarea
+              value={formData.notes || ''}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            />
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="mt-6 flex justify-end gap-3 pt-6 border-t border-gray-200 dark:border-gray-700">

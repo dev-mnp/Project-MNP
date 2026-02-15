@@ -9,6 +9,7 @@ export interface ArticleRecord {
   cost_per_unit: number;
   item_type: string;
   category?: string;
+  master_category?: string;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
@@ -52,6 +53,7 @@ export const fetchAllArticles = async (includeInactive: boolean = true): Promise
       cost_per_unit: parseFloat(record.cost_per_unit) || 0,
       item_type: record.item_type || 'Article',
       category: record.category || null,
+      master_category: record.master_category || null,
       is_active: record.is_active ?? true,
       created_at: record.created_at,
       updated_at: record.updated_at,
@@ -168,6 +170,7 @@ export const createArticle = async (article: {
   cost_per_unit: number;
   item_type: string;
   category?: string;
+  master_category?: string;
 }): Promise<ArticleRecord> => {
   try {
     const { data, error } = await supabase
@@ -188,6 +191,7 @@ export const createArticle = async (article: {
       cost_per_unit: parseFloat(data.cost_per_unit) || 0,
       item_type: data.item_type || 'Article',
       category: data.category || null,
+      master_category: data.master_category || null,
       is_active: data.is_active ?? true,
       created_at: data.created_at,
       updated_at: data.updated_at,
@@ -204,6 +208,7 @@ export const createArticle = async (article: {
         cost_per_unit: result.cost_per_unit,
         item_type: result.item_type,
         category: result.category,
+        master_category: result.master_category,
         is_active: result.is_active,
       },
     });
@@ -226,6 +231,7 @@ export const updateArticle = async (
     cost_per_unit?: number;
     item_type?: string;
     category?: string;
+    master_category?: string;
   }
 ): Promise<ArticleRecord> => {
   try {
@@ -255,6 +261,7 @@ export const updateArticle = async (
       cost_per_unit: parseFloat(data.cost_per_unit) || 0,
       item_type: data.item_type || 'Article',
       category: data.category || null,
+      master_category: data.master_category || null,
       is_active: data.is_active ?? true,
       created_at: data.created_at,
       updated_at: data.updated_at,

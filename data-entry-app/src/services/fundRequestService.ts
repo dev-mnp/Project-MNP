@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { logAction } from './auditLogService';
 import { createOrderEntry, type OrderEntry } from './orderService';
+import { fetchAllArticles } from './articlesService';
 
 export interface FundRequest {
   id?: string;
@@ -15,6 +16,7 @@ export interface FundRequest {
   supplier_city?: string; // Supplier city for Article type fund requests
   supplier_state?: string; // Supplier state for Article type fund requests
   supplier_pincode?: string; // Supplier pincode for Article type fund requests
+  purchase_order_number?: string; // Purchase order number in format MASM/MNP00126
   notes?: string;
   created_at?: string;
   updated_at?: string;
@@ -55,6 +57,7 @@ export interface FundRequestArticle {
   cheque_in_favour?: string;
   cheque_sl_no?: string;
   supplier_article_name?: string;
+  description?: string;
   created_at?: string;
 }
 
@@ -71,6 +74,76 @@ const getCurrentUserId = async (): Promise<string | null> => {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.user?.id || null;
   } catch {
+    return null;
+  }
+};
+
+/**
+ * Find aid article by matching aid_type with articles
+ * Uses multiple matching strategies for better accuracy
+ */
+const findAidArticle = async (aidType: string): Promise<{ id: string; article_name: string } | null> => {
+  try {
+    const allArticles = await fetchAllArticles(true);
+    const aidArticles = allArticles.filter(article => article.item_type === 'Aid');
+    
+    if (aidArticles.length === 0) {
+      console.warn('No Aid articles found in database');
+      return null;
+    }
+
+    const aidTypeLower = aidType.toLowerCase().trim();
+    
+    // Strategy 1: Exact match (case-insensitive) on article_name
+    let match = aidArticles.find(article => 
+      article.article_name.toLowerCase().trim() === aidTypeLower
+    );
+    if (match) {
+      console.debug(`Found Aid article by exact name match: ${match.article_name}`);
+      return { id: match.id, article_name: match.article_name };
+    }
+
+    // Strategy 2: Exact match (case-insensitive) on category
+    match = aidArticles.find(article => 
+      article.category && article.category.toLowerCase().trim() === aidTypeLower
+    );
+    if (match) {
+      console.debug(`Found Aid article by exact category match: ${match.article_name} (category: ${match.category})`);
+      return { id: match.id, article_name: match.article_name };
+    }
+
+    // Strategy 3: Article name contains aid_type (case-insensitive)
+    match = aidArticles.find(article => 
+      article.article_name.toLowerCase().includes(aidTypeLower)
+    );
+    if (match) {
+      console.debug(`Found Aid article by partial name match: ${match.article_name}`);
+      return { id: match.id, article_name: match.article_name };
+    }
+
+    // Strategy 4: Category contains aid_type (case-insensitive)
+    match = aidArticles.find(article => 
+      article.category && article.category.toLowerCase().includes(aidTypeLower)
+    );
+    if (match) {
+      console.debug(`Found Aid article by partial category match: ${match.article_name} (category: ${match.category})`);
+      return { id: match.id, article_name: match.article_name };
+    }
+
+    // Strategy 5: Aid_type contains article name (reverse match)
+    match = aidArticles.find(article => 
+      aidTypeLower.includes(article.article_name.toLowerCase().trim())
+    );
+    if (match) {
+      console.debug(`Found Aid article by reverse name match: ${match.article_name}`);
+      return { id: match.id, article_name: match.article_name };
+    }
+
+    console.warn(`No Aid article found matching aid_type: "${aidType}". Available Aid articles:`, 
+      aidArticles.map(a => `${a.article_name}${a.category ? ` (${a.category})` : ''}`).join(', '));
+    return null;
+  } catch (error) {
+    console.error('Error finding Aid article:', error);
     return null;
   }
 };
@@ -125,6 +198,73 @@ export const generateFundRequestNumber = async (): Promise<string> => {
     // Fallback: use timestamp-based number
     const timestamp = Date.now().toString().slice(-6);
     return `FR-${timestamp}`;
+  }
+};
+
+/**
+ * Generate purchase order number
+ * Format: MASM/MNP00126, MASM/MNP00226, etc.
+ * The format is: MASM/MNP + 3-digit sequence + 2-digit year
+ * Example: 00126 = 001 (sequence) + 26 (year 2026)
+ * Next: 00226 = 002 (sequence) + 26 (year 2026)
+ */
+export const generatePurchaseOrderNumber = async (): Promise<string> => {
+  try {
+    // Hardcoded year suffix (26 for year 2026)
+    const yearSuffix = 26;
+
+    // Get all fund requests with purchase order numbers to find the highest sequence number
+    const { data, error } = await supabase
+      .from('fund_request')
+      .select('purchase_order_number')
+      .not('purchase_order_number', 'is', null)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    let maxSequence = 0; // Start from 1, so default max is 0
+
+    if (data && data.length > 0) {
+      // Extract sequence numbers from all purchase order numbers
+      // Format: MASM/MNP00126 (5 digits: 3-digit sequence + 2-digit year)
+      data.forEach((item) => {
+        const poNumber = item.purchase_order_number;
+        if (!poNumber || typeof poNumber !== 'string') return;
+        
+        // Match format: MASM/MNP followed by 5 digits
+        const match = poNumber.match(/MASM\/MNP(\d{5})$/);
+        if (match) {
+          const fullNumber = match[1];
+          const numberYear = parseInt(fullNumber.slice(-2), 10);
+          
+          // Only consider numbers with the same year suffix (26)
+          if (numberYear === yearSuffix) {
+            const sequence = parseInt(fullNumber.slice(0, 3), 10);
+            console.log(`Found PO number: ${poNumber}, extracted sequence: ${sequence}, year: ${numberYear}`);
+            if (sequence > maxSequence) {
+              maxSequence = sequence;
+            }
+          } else {
+            console.log(`Skipping PO number: ${poNumber} (year ${numberYear} doesn't match ${yearSuffix})`);
+          }
+        } else {
+          console.log(`PO number doesn't match format: ${poNumber}`);
+        }
+      });
+    }
+
+    // Generate next sequence number (increment sequence, keep year)
+    const nextSequence = maxSequence + 1;
+    const sequenceStr = nextSequence.toString().padStart(3, '0');
+    const generatedNumber = `MASM/MNP${sequenceStr}${yearSuffix}`;
+    console.log(`Max sequence found: ${maxSequence}, next sequence: ${nextSequence}, generated: ${generatedNumber}`);
+    return generatedNumber;
+  } catch (error) {
+    console.error('Error generating purchase order number:', error);
+    // Fallback: use sequence 001 with year 26
+    const yearSuffix = 26;
+    console.log('Fallback: using sequence 001 with year', yearSuffix);
+    return `MASM/MNP001${yearSuffix}`;
   }
 };
 
@@ -356,6 +496,41 @@ export const createFundRequest = async (data: {
         ...r,
         fund_requested: parseFloat(r.fund_requested) || 0,
       })) || [];
+
+      // Create order entries for Aid fund requests
+      if (data.fundRequest.aid_type && recipients && recipients.length > 0) {
+        try {
+          // Find the article_id by matching aid_type with articles where item_type='Aid'
+          const aidArticle = await findAidArticle(data.fundRequest.aid_type);
+
+          if (aidArticle) {
+            // Create order entries for each recipient
+            const orderPromises = recipients.map(recipient => {
+              const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+                article_id: aidArticle.id,
+                quantity_ordered: 1, // Aid is per recipient
+                order_date: new Date().toISOString().split('T')[0],
+                status: 'pending',
+                supplier_name: null,
+                supplier_contact: null,
+                unit_price: parseFloat(recipient.fund_requested) || 0,
+                total_amount: parseFloat(recipient.fund_requested) || 0,
+                notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
+                fund_request_id: fundRequest.id,
+              };
+              return createOrderEntry(orderData);
+            });
+
+            await Promise.all(orderPromises);
+            console.log(`Created ${orderPromises.length} order entries for Aid fund request: ${fundRequest.fund_request_number}`);
+          } else {
+            console.warn(`No Aid article found matching aid_type: ${data.fundRequest.aid_type}. Order entries not created.`);
+          }
+        } catch (orderError) {
+          console.error('Error creating order entries for Aid fund request:', orderError);
+          // Don't throw - order creation failure shouldn't fail fund request creation
+        }
+      }
     }
 
     // Insert articles if Article type
@@ -475,6 +650,17 @@ export const updateFundRequest = async (
 
     // Update recipients if Aid type
     if (data.fundRequest.fund_request_type === 'Aid' && data.recipients !== undefined) {
+      // Delete existing order entries for this fund request (before updating recipients)
+      const { error: deleteOrdersError } = await supabase
+        .from('order_entries')
+        .delete()
+        .eq('fund_request_id', id);
+
+      if (deleteOrdersError) {
+        console.error('Error deleting old order entries:', deleteOrdersError);
+        // Continue with update even if order deletion fails
+      }
+
       // Delete existing recipients
       await supabase
         .from('fund_request_recipients')
@@ -502,6 +688,42 @@ export const updateFundRequest = async (
           ...r,
           fund_requested: parseFloat(r.fund_requested) || 0,
         })) || [];
+
+        // Create new order entries for Aid fund requests
+        const updatedFundRequest = await fetchFundRequestById(id);
+        if (updatedFundRequest?.aid_type && recipients && recipients.length > 0) {
+          try {
+            // Find the article_id by matching aid_type with articles where item_type='Aid'
+            const aidArticle = await findAidArticle(updatedFundRequest.aid_type);
+
+            if (aidArticle) {
+              // Create order entries for each recipient
+              const orderPromises = recipients.map(recipient => {
+                const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+                  article_id: aidArticle.id,
+                  quantity_ordered: 1, // Aid is per recipient
+                  order_date: new Date().toISOString().split('T')[0],
+                  status: 'pending',
+                  supplier_name: null,
+                  supplier_contact: null,
+                  unit_price: parseFloat(recipient.fund_requested) || 0,
+                  total_amount: parseFloat(recipient.fund_requested) || 0,
+                  notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
+                  fund_request_id: id,
+                };
+                return createOrderEntry(orderData);
+              });
+
+              await Promise.all(orderPromises);
+              console.log(`Created ${orderPromises.length} order entries for Aid fund request update: ${fundRequest.fund_request_number}`);
+            } else {
+              console.warn(`No Aid article found matching aid_type: ${updatedFundRequest.aid_type}. Order entries not created.`);
+            }
+          } catch (orderError) {
+            console.error('Error creating order entries for Aid fund request update:', orderError);
+            // Don't throw - order creation failure shouldn't fail fund request update
+          }
+        }
       } else {
         result.recipients = [];
       }
@@ -509,6 +731,17 @@ export const updateFundRequest = async (
 
     // Update articles if Article type
     if (data.fundRequest.fund_request_type === 'Article' && data.articles !== undefined) {
+      // Delete existing order entries for this fund request (before updating articles)
+      const { error: deleteOrdersError } = await supabase
+        .from('order_entries')
+        .delete()
+        .eq('fund_request_id', id);
+
+      if (deleteOrdersError) {
+        console.error('Error deleting old order entries:', deleteOrdersError);
+        // Continue with update even if order deletion fails
+      }
+
       // Delete existing articles
       await supabase
         .from('fund_request_articles')
@@ -546,6 +779,32 @@ export const updateFundRequest = async (
           value: parseFloat(item.value) || 0,
           cumulative: parseFloat(item.cumulative) || 0,
         })) || [];
+
+        // Create order entries for each article
+        if (articles && articles.length > 0) {
+          try {
+            const orderPromises = articles.map(article => {
+              const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+                article_id: article.article_id,
+                quantity_ordered: article.quantity,
+                order_date: new Date().toISOString().split('T')[0],
+                status: 'pending',
+                supplier_name: null,
+                supplier_contact: null,
+                unit_price: article.unit_price,
+                total_amount: article.value,
+                notes: `Created from Fund Request: ${fundRequest.fund_request_number}`,
+                fund_request_id: id,
+              };
+              return createOrderEntry(orderData);
+            });
+
+            await Promise.all(orderPromises);
+          } catch (orderError) {
+            console.error('Error creating order entries:', orderError);
+            // Don't throw - order creation failure shouldn't fail fund request update
+          }
+        }
       } else {
         result.articles = [];
       }
@@ -585,15 +844,48 @@ export const deleteFundRequest = async (id: string): Promise<void> => {
       throw new Error('Fund request not found');
     }
 
+    // Delete all order entries associated with this fund request
+    // This ensures order counts are properly updated when FR is deleted
+    const { data: orderEntries, error: orderEntriesError } = await supabase
+      .from('order_entries')
+      .select('id')
+      .eq('fund_request_id', id);
+
+    if (orderEntriesError) {
+      console.error('Error fetching order entries for deletion:', orderEntriesError);
+      // Continue with deletion even if fetching order entries fails
+    } else if (orderEntries && orderEntries.length > 0) {
+      // Delete all order entries
+      const { error: deleteOrdersError } = await supabase
+        .from('order_entries')
+        .delete()
+        .eq('fund_request_id', id);
+
+      if (deleteOrdersError) {
+        console.error('Error deleting order entries:', deleteOrdersError);
+        // Continue with fund request deletion even if order deletion fails
+      }
+    }
+
     // Delete fund request (cascade will delete recipients/articles)
-    const { error } = await supabase
+    const { error, data } = await supabase
       .from('fund_request')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .select();
 
     if (error) {
       console.error('Error deleting fund request:', error);
-      throw error;
+      // Provide more specific error message
+      if (error.code === '42501') {
+        throw new Error('Permission denied: You do not have permission to delete fund requests.');
+      }
+      throw new Error(`Failed to delete fund request: ${error.message || 'Unknown error'}`);
+    }
+
+    // Verify deletion succeeded
+    if (!data || data.length === 0) {
+      throw new Error('Fund request deletion failed: No rows were deleted. This may be due to insufficient permissions.');
     }
 
     // Log audit action

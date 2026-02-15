@@ -51,6 +51,7 @@ const ArticleManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
   
   // Sorting
   const [sortColumn, setSortColumn] = useState<string | null>(null);
@@ -63,6 +64,7 @@ const ArticleManagement: React.FC = () => {
     cost_per_unit: 0,
     item_type: 'Article',
     category: '',
+    master_category: '',
   });
 
   // Validation errors
@@ -105,7 +107,7 @@ const ArticleManagement: React.FC = () => {
   // Apply filters when articles or filters change
   useEffect(() => {
     applyFilters();
-  }, [articles, searchQuery, itemTypeFilter, categoryFilter, sortColumn, sortDirection]);
+  }, [articles, searchQuery, itemTypeFilter, categoryFilter, dateFilter, sortColumn, sortDirection]);
 
   // Close category dropdown when clicking outside
   useEffect(() => {
@@ -211,6 +213,30 @@ const ArticleManagement: React.FC = () => {
       filtered = filtered.filter((article) => article.category === categoryFilter);
     }
 
+    // Date filter
+    if (dateFilter.start || dateFilter.end) {
+      filtered = filtered.filter((article) => {
+        if (!article.created_at) return false;
+        
+        const recordDate = new Date(article.created_at);
+        recordDate.setHours(0, 0, 0, 0);
+        
+        if (dateFilter.start) {
+          const startDate = new Date(dateFilter.start);
+          startDate.setHours(0, 0, 0, 0);
+          if (recordDate < startDate) return false;
+        }
+        
+        if (dateFilter.end) {
+          const endDate = new Date(dateFilter.end);
+          endDate.setHours(23, 59, 59, 999);
+          if (recordDate > endDate) return false;
+        }
+        
+        return true;
+      });
+    }
+
     // Sorting
     if (sortColumn) {
       filtered.sort((a, b) => {
@@ -233,6 +259,10 @@ const ArticleManagement: React.FC = () => {
           case 'category':
             aValue = a.category || '';
             bValue = b.category || '';
+            break;
+          case 'createdAt':
+            aValue = a.created_at ? new Date(a.created_at).getTime() : 0;
+            bValue = b.created_at ? new Date(b.created_at).getTime() : 0;
             break;
           default:
             return 0;
@@ -295,6 +325,7 @@ const ArticleManagement: React.FC = () => {
       cost_per_unit: 0,
       item_type: 'Article',
       category: '',
+      master_category: '',
     });
     setErrors({});
     setEditingId(null);
@@ -312,6 +343,7 @@ const ArticleManagement: React.FC = () => {
       cost_per_unit: article.cost_per_unit,
       item_type: article.item_type,
       category: article.category || '',
+      master_category: article.master_category || '',
     });
     setEditingId(article.id);
     setIsFormMode(true);
@@ -393,12 +425,15 @@ const ArticleManagement: React.FC = () => {
     setSearchQuery('');
     setItemTypeFilter('all');
     setCategoryFilter('all');
+    setDateFilter({ start: null, end: null });
   };
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
     itemTypeFilter !== 'all' ||
-    categoryFilter !== 'all';
+    categoryFilter !== 'all' ||
+    dateFilter.start !== null ||
+    dateFilter.end !== null;
 
   const handleExport = async () => {
     try {
@@ -407,6 +442,7 @@ const ArticleManagement: React.FC = () => {
         cost_per_unit: article.cost_per_unit,
         item_type: article.item_type,
         category: article.category || '',
+        master_category: article.master_category || '',
         is_active: article.is_active ? 'Active' : 'Inactive',
         created_at: article.created_at ? new Date(article.created_at).toLocaleDateString() : '',
       }));
@@ -416,6 +452,7 @@ const ArticleManagement: React.FC = () => {
         'cost_per_unit',
         'item_type',
         'category',
+        'master_category',
         'is_active',
         'created_at',
       ], showWarning);
@@ -612,6 +649,21 @@ const ArticleManagement: React.FC = () => {
               </div>
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Master Category
+              </label>
+              <input
+                type="text"
+                value={formData.master_category}
+                onChange={(e) =>
+                  setFormData({ ...formData, master_category: e.target.value })
+                }
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                placeholder="Enter master category (optional)"
+              />
+            </div>
+
             <div className="flex gap-2 pt-4">
               <button
                 onClick={handleSave}
@@ -658,7 +710,7 @@ const ArticleManagement: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Search
@@ -709,6 +761,37 @@ const ArticleManagement: React.FC = () => {
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Date Range
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={dateFilter.start || ''}
+                    onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value || null })}
+                    className="flex-1 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400">to</span>
+                  <input
+                    type="date"
+                    value={dateFilter.end || ''}
+                    onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value || null })}
+                    min={dateFilter.start || undefined}
+                    className="flex-1 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                  />
+                  {(dateFilter.start || dateFilter.end) && (
+                    <button
+                      onClick={() => setDateFilter({ start: null, end: null })}
+                      className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
+                      title="Clear date filter"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
       </div>
           </div>
@@ -786,6 +869,20 @@ const ArticleManagement: React.FC = () => {
                         </div>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
+                        Master Category
+                      </th>
+                      <th 
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('createdAt')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Created At
+                          <span className={`text-xs ${sortColumn === 'createdAt' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                            {getSortIcon('createdAt')}
+                          </span>
+                        </div>
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
                         Actions
                       </th>
                     </tr>
@@ -807,6 +904,12 @@ const ArticleManagement: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                           {article.category || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {article.master_category || '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                          {article.created_at ? new Date(article.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex items-center gap-2">

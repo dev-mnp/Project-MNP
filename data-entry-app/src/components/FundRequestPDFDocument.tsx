@@ -1,5 +1,5 @@
 import React from 'react';
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 import type { FundRequestWithDetails } from '../services/fundRequestService';
 import { formatDate, getBeneficiaryDisplayValue } from '../utils/fundRequestUtils';
 
@@ -32,6 +32,33 @@ const styles = StyleSheet.create({
     padding: 30,
     fontSize: 10,
     fontFamily: 'Helvetica',
+  },
+  headerSection: {
+    flexDirection: 'row',
+    marginBottom: 20,
+    position: 'relative',
+  },
+  logoSection: {
+    width: '30%',
+    marginRight: 20,
+  },
+  logo: {
+    width: 80,
+    height: 70,
+    marginBottom: 5,
+  },
+  companyInfo: {
+    fontSize: 9,
+    lineHeight: 1.4,
+    marginTop: 5,
+  },
+  companyInfoLine: {
+    marginBottom: 2,
+  },
+  centerHeader: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: 5,
   },
   header: {
     marginBottom: 20,
@@ -169,11 +196,15 @@ const styles = StyleSheet.create({
 interface FundRequestPDFDocumentProps {
   fundRequest: FundRequestWithDetails;
   previousCumulative: number;
+  logoDataUri?: string | null;
+  orientation?: 'portrait' | 'landscape';
 }
 
 const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({ 
   fundRequest, 
-  previousCumulative 
+  previousCumulative,
+  logoDataUri,
+  orientation = 'portrait'
 }) => {
   const currentTotal = fundRequest.total_amount || 0;
   const grandTotal = previousCumulative + currentTotal;
@@ -188,13 +219,33 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        {/* Header - Matching Excel template format */}
-        <View style={styles.header}>
-          <Text style={styles.omsakthiTitle}>OMSAKTHI</Text>
-          <Text style={styles.paymentDetails}>Payment Request Details for MASM Social Welfare Programme on the eve of 86th Birthday</Text>
-          <Text style={styles.celebrations}>Celebrations of His Holiness AMMA at Melmaruvathur on 03-03-2026</Text>
-          <Text style={styles.fundRequestTitle}>{titleText}</Text>
+      <Page size="A4" orientation={orientation} style={styles.page}>
+        {/* Header Section with Logo and Company Info */}
+        <View style={styles.headerSection}>
+          <View style={styles.logoSection}>
+            {logoDataUri && (
+              <Image 
+                src={logoDataUri} 
+                style={styles.logo}
+              />
+            )}
+            <View style={styles.companyInfo}>
+              <Text style={styles.companyInfoLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>
+              <Text style={styles.companyInfoLine}>GST Road, Melmaruvathur 603319</Text>
+              <Text style={styles.companyInfoLine}>Chengalpet District, Tamilnadu</Text>
+              <Text style={styles.companyInfoLine}>GST NO: 33AACTM0073D1Z5.</Text>
+              <Text style={styles.companyInfoLine}>Website: maruvoorhelp@gmail.com</Text>
+            </View>
+          </View>
+          <View style={styles.centerHeader}>
+            {/* Header - Matching Excel template format */}
+            <View style={styles.header}>
+              <Text style={styles.omsakthiTitle}>OMSAKTHI</Text>
+              <Text style={styles.paymentDetails}>Payment Request Details for MASM Makkal Nala Pani Programme on the eve of 86th Birthday</Text>
+              <Text style={styles.celebrations}>Celebrations of His Holiness AMMA at Melmaruvathur on 03-03-2026</Text>
+              <Text style={styles.fundRequestTitle}>{titleText}</Text>
+            </View>
+          </View>
         </View>
 
         {/* Table - Aid Type */}

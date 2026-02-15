@@ -86,6 +86,13 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
     });
   };
 
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onUpdate({
+      ...article,
+      description: e.target.value,
+    });
+  };
+
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800">
       {/* First Line */}
@@ -187,32 +194,47 @@ const ArticleRow: React.FC<ArticleRowProps> = ({
         )}
       </div>
 
-      {/* Second Line - Supplier Article Name and Cheque in Favour (for Article FR) */}
+      {/* Second Line - Supplier Article Name and Description (for Article FR) */}
       {showArticleFRFields && (
-        <div className="flex items-center gap-2 md:gap-4 mt-2 flex-wrap">
-          <div className="flex items-center gap-1 flex-1 min-w-[150px]">
-            <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
-              Supplier Article Name:
-            </label>
-            <input
-              type="text"
-              value={article.supplier_article_name || ''}
-              onChange={handleSupplierArticleNameChange}
-              className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-              placeholder="Supplier Article Name"
-            />
-          </div>
+        <div className="flex flex-col gap-2 mt-2">
+          <div className="flex items-center gap-2 md:gap-4 flex-wrap">
+            <div className="flex items-center gap-1 flex-1 min-w-[150px]">
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
+                Supplier Article Name:
+              </label>
+              <input
+                type="text"
+                value={article.supplier_article_name || ''}
+                onChange={handleSupplierArticleNameChange}
+                className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                placeholder="Supplier Article Name"
+              />
+            </div>
 
+            <div className="flex items-center gap-1 flex-1 min-w-[150px]">
+              <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
+                Description:
+              </label>
+              <input
+                type="text"
+                value={article.description || ''}
+                onChange={handleDescriptionChange}
+                className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                placeholder="Description"
+              />
+            </div>
+          </div>
+          
           <div className="flex items-center gap-1 flex-1 min-w-[120px]">
             <label className="text-xs font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap hidden md:inline">
-              Cheque in Favour:
+              Cheque/RTGS in Favour:
             </label>
             <input
               type="text"
               value={article.cheque_in_favour || ''}
               onChange={handleChequeInFavourChange}
               className="flex-1 min-w-0 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-              placeholder="Cheque in Favour"
+              placeholder="Cheque/RTGS in Favour"
             />
           </div>
         </div>

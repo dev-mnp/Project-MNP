@@ -42,9 +42,14 @@ const getCurrentUserId = async (): Promise<string | null> => {
 /**
  * Create district beneficiary entries
  * For district type, we create one entry per article
+ * @param entries - The entries to create
+ * @param isUpdate - If true, log as UPDATE instead of CREATE (used when replacing existing entries)
+ * @param oldEntries - The old entries data for UPDATE audit log (required if isUpdate is true)
  */
 export const createDistrictBeneficiaryEntries = async (
-  entries: Omit<DistrictBeneficiaryEntry, 'id' | 'created_at' | 'updated_at'>[]
+  entries: Omit<DistrictBeneficiaryEntry, 'id' | 'created_at' | 'updated_at'>[],
+  isUpdate: boolean = false,
+  oldEntries: any[] = []
 ): Promise<DistrictBeneficiaryEntry[]> => {
   try {
     const { data, error } = await supabase
@@ -59,24 +64,53 @@ export const createDistrictBeneficiaryEntries = async (
 
     const result = data || [];
 
-    // Log audit action with new values
+    // Log audit action
     if (result.length > 0) {
       const userId = await getCurrentUserId();
       const applicationNumber = result[0].application_number;
-      await logAction(userId, 'CREATE', 'district_beneficiary', applicationNumber || null, {
-        entity_name: applicationNumber,
-        entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
-        new_values: {
-          application_number: applicationNumber,
-          district_id: result[0].district_id,
-          entries_count: result.length,
-          entries: result.map((entry) => ({
-            article_id: entry.article_id,
-            quantity: entry.quantity,
-            total_amount: entry.total_amount,
-          })),
-        },
-      });
+      
+      if (isUpdate) {
+        // Log as UPDATE when replacing existing entries
+        await logAction(userId, 'UPDATE', 'district_beneficiary', applicationNumber || null, {
+          entity_name: applicationNumber,
+          entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
+          old_values: {
+            application_number: applicationNumber,
+            entries_count: oldEntries.length,
+            entries: oldEntries.map((entry) => ({
+              article_id: entry.article_id,
+              quantity: entry.quantity,
+              total_amount: entry.total_amount,
+            })),
+          },
+          new_values: {
+            application_number: applicationNumber,
+            district_id: result[0].district_id,
+            entries_count: result.length,
+            entries: result.map((entry) => ({
+              article_id: entry.article_id,
+              quantity: entry.quantity,
+              total_amount: entry.total_amount,
+            })),
+          },
+        });
+      } else {
+        // Log as CREATE for new entries
+        await logAction(userId, 'CREATE', 'district_beneficiary', applicationNumber || null, {
+          entity_name: applicationNumber,
+          entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
+          new_values: {
+            application_number: applicationNumber,
+            district_id: result[0].district_id,
+            entries_count: result.length,
+            entries: result.map((entry) => ({
+              article_id: entry.article_id,
+              quantity: entry.quantity,
+              total_amount: entry.total_amount,
+            })),
+          },
+        });
+      }
     }
 
     return result;
@@ -307,16 +341,25 @@ export const deleteDistrictBeneficiaryEntry = async (id: string): Promise<void> 
 
 /**
  * Delete all entries for an application number
+ * @param applicationNumber - The application number to delete entries for
+ * @param suppressAuditLog - If true, don't log the deletion (used when deleting as part of an update)
+ * @returns The deleted entries data for audit logging purposes
  */
 export const deleteDistrictBeneficiaryEntriesByApplicationNumber = async (
-  applicationNumber: string
-): Promise<void> => {
+  applicationNumber: string,
+  suppressAuditLog: boolean = false
+): Promise<any[]> => {
   try {
-    // Get entry count before deletion for audit log
-    const { count } = await supabase
+    // Get entries before deletion for audit log
+    const { data: entriesToDelete, error: fetchError } = await supabase
       .from('district_beneficiary_entries')
-      .select('*', { count: 'exact', head: true })
+      .select('*')
       .eq('application_number', applicationNumber);
+
+    if (fetchError) {
+      console.error('Error fetching district beneficiary entries for deletion:', fetchError);
+      throw fetchError;
+    }
 
     const { error } = await supabase
       .from('district_beneficiary_entries')
@@ -328,16 +371,20 @@ export const deleteDistrictBeneficiaryEntriesByApplicationNumber = async (
       throw error;
     }
 
-    // Log audit action with deleted values
-    const userId = await getCurrentUserId();
-    await logAction(userId, 'DELETE', 'district_beneficiary', applicationNumber, {
-      entity_name: applicationNumber,
-      entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
-      deleted_values: {
-        application_number: applicationNumber,
-        entries_deleted: count || 0,
-      },
-    });
+    // Log audit action with deleted values only if not suppressed
+    if (!suppressAuditLog) {
+      const userId = await getCurrentUserId();
+      await logAction(userId, 'DELETE', 'district_beneficiary', applicationNumber, {
+        entity_name: applicationNumber,
+        entity_summary: `District Beneficiary Entry: ${applicationNumber}`,
+        deleted_values: {
+          application_number: applicationNumber,
+          entries_deleted: entriesToDelete?.length || 0,
+        },
+      });
+    }
+
+    return entriesToDelete || [];
   } catch (error) {
     console.error('Failed to delete district beneficiary entries by application number:', error);
     throw error;

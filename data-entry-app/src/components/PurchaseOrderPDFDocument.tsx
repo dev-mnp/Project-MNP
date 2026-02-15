@@ -201,6 +201,9 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
           <View style={styles.centerHeader}>
             <Text style={styles.poTitle}>PURCHASE ORDER</Text>
             <View style={styles.poDateContainer}>
+              {fundRequest.purchase_order_number && (
+                <Text style={styles.poDate}>PO NO: {fundRequest.purchase_order_number}</Text>
+              )}
               <Text style={styles.poDate}>DATE {currentDate}</Text>
             </View>
           </View>
@@ -249,6 +252,7 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
             </View>
             <View style={[styles.tableCell, styles.colTotal]}>
               <Text style={[styles.tableCellText, { color: '#FFFFFF' }]}>TOTAL</Text>
+              <Text style={[styles.tableCellText, { color: '#FFFFFF', fontSize: 8 }]}>(Inclusive of Tax)</Text>
             </View>
           </View>
 
@@ -261,7 +265,7 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
                 </Text>
               </View>
               <View style={[styles.tableCell, styles.colDescription]}>
-                <Text style={styles.tableCellText}></Text>
+                <Text style={styles.tableCellText}>{article.description || ''}</Text>
               </View>
               <View style={[styles.tableCell, styles.colQty]}>
                 <Text style={styles.tableCellText}>{article.quantity || 0}</Text>
@@ -292,10 +296,11 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
             <View style={[styles.tableCell, styles.colQty]}></View>
             <View style={[styles.tableCell, styles.colUnitPrice]}>
               <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>TOTAL</Text>
+              <Text style={[styles.tableCellText, { fontWeight: 'bold', fontSize: 8 }]}>(Inclusive of Tax)</Text>
             </View>
             <View style={[styles.tableCell, styles.colTotal]}>
               <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>
-                ₹ {totalAmount.toLocaleString('en-IN', { 
+                {totalAmount.toLocaleString('en-IN', { 
                   minimumFractionDigits: 2, 
                   maximumFractionDigits: 2 
                 })}

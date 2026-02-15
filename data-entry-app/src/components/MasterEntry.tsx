@@ -1276,6 +1276,10 @@ const MasterEntry: React.FC = () => {
       try {
         let applicationNumber = formData.applicationNumber;
 
+        // Track if this is an update (replacing existing entries)
+        let isUpdate = false;
+        let oldEntries: any[] = [];
+
         // If editing, use existing application number
         // If new, check district_master for application_number first
         if (!editingRecordId && !applicationNumber) {
@@ -1285,17 +1289,19 @@ const MasterEntry: React.FC = () => {
           if (districtAppNumber) {
             // Use application_number from district_master
             applicationNumber = districtAppNumber;
-            // Delete old entries to replace with new ones
-            await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber);
+            // Delete old entries to replace with new ones (suppress audit log, will log as UPDATE)
+            oldEntries = await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber, true);
+            isUpdate = oldEntries.length > 0;
           } else {
             // No application_number in district_master, check if district already has entries
             const existingEntry = await fetchDistrictBeneficiaryEntryByDistrictId(formData.districtId);
             if (existingEntry) {
               // District already has an entry, use its application number
               applicationNumber = existingEntry.applicationNumber;
-              // Delete old entries to replace with new ones
+              // Delete old entries to replace with new ones (suppress audit log, will log as UPDATE)
               if (applicationNumber) {
-                await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber);
+                oldEntries = await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber, true);
+                isUpdate = oldEntries.length > 0;
               }
             } else {
               // New district entry, generate new application number
@@ -1305,8 +1311,9 @@ const MasterEntry: React.FC = () => {
             }
           }
         } else if (editingRecordId && applicationNumber) {
-          // Editing existing entry - delete old entries first
-          await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber);
+          // Editing existing entry - delete old entries first (suppress audit log, will log as UPDATE)
+          oldEntries = await deleteDistrictBeneficiaryEntriesByApplicationNumber(applicationNumber, true);
+          isUpdate = oldEntries.length > 0;
         }
 
         if (!applicationNumber) {
@@ -1326,7 +1333,7 @@ const MasterEntry: React.FC = () => {
           status: 'pending' as const,
         }));
 
-        await createDistrictBeneficiaryEntries(entries);
+        await createDistrictBeneficiaryEntries(entries, isUpdate, oldEntries);
 
         // Update district_master table with application_number (if not already set)
         // This ensures district_master always has the application_number

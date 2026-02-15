@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { supabase } from '../lib/supabase';
-import { fetchFundRequestById, fetchPreviousFundRequestTotal, type FundRequestWithDetails } from './fundRequestService';
+import { fetchFundRequestById, fetchPreviousFundRequestTotal, generatePurchaseOrderNumber, type FundRequestWithDetails } from './fundRequestService';
 import { aidFundRequestConfig } from '../config/excelTemplateConfig';
 import { pdf } from '@react-pdf/renderer';
 import React from 'react';
@@ -16,7 +16,8 @@ export const ENABLE_XLSX_GENERATION = false;
  */
 export const generateFundRequestPDF = async (
   fundRequestId: string,
-  _type: 'Aid' | 'Article'
+  _type: 'Aid' | 'Article',
+  orientation: 'portrait' | 'landscape' = 'portrait'
 ): Promise<Blob> => {
   try {
     const fundRequest = await fetchFundRequestById(fundRequestId);
@@ -30,10 +31,15 @@ export const generateFundRequestPDF = async (
       previousCumulative = await fetchPreviousFundRequestTotal(fundRequest.id, fundRequest.created_at);
     }
 
+    // Load logo as data URI
+    const logoDataUri = await loadLogoAsDataUri();
+
     // Generate PDF using React PDF
     const pdfDoc = React.createElement(FundRequestPDFDocument, {
       fundRequest,
       previousCumulative,
+      logoDataUri,
+      orientation,
     }) as React.ReactElement;
 
     // Generate PDF blob
@@ -102,13 +108,14 @@ export const generateFundRequestXLSX = async (
  */
 export const generateFundRequestDocument = async (
   fundRequestId: string,
-  type: 'Aid' | 'Article'
+  type: 'Aid' | 'Article',
+  orientation: 'portrait' | 'landscape' = 'portrait'
 ): Promise<Blob> => {
   // Use PDF by default, XLSX is disabled
   if (ENABLE_XLSX_GENERATION) {
     return generateFundRequestXLSX(fundRequestId, type);
   } else {
-    return generateFundRequestPDF(fundRequestId, type);
+    return generateFundRequestPDF(fundRequestId, type, orientation);
   }
 };
 
@@ -543,7 +550,7 @@ const formatPODate = (): string => {
  */
 export const generatePurchaseOrderDocument = async (fundRequestId: string): Promise<Blob> => {
   try {
-    const fundRequest = await fetchFundRequestById(fundRequestId);
+    let fundRequest = await fetchFundRequestById(fundRequestId);
     if (!fundRequest) {
       throw new Error('Fund request not found');
     }
@@ -556,11 +563,30 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
       throw new Error('No articles found in fund request');
     }
 
+    // Generate and store purchase order number if it doesn't exist
+    let purchaseOrderNumber = fundRequest.purchase_order_number;
+    if (!purchaseOrderNumber) {
+      purchaseOrderNumber = await generatePurchaseOrderNumber();
+      // Update the fund request with the PO number
+      const { error: updateError } = await supabase
+        .from('fund_request')
+        .update({ purchase_order_number: purchaseOrderNumber })
+        .eq('id', fundRequestId);
+      
+      if (updateError) {
+        console.error('Error updating purchase order number:', updateError);
+        // Continue anyway - we'll use the generated number for the document
+      } else {
+        // Update the local object
+        fundRequest = { ...fundRequest, purchase_order_number: purchaseOrderNumber };
+      }
+    }
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Purchase Order');
     
     const currentDate = formatPODate();
-    const totalAmount = fundRequest.articles.reduce((sum, a) => sum + (a.value || 0), 0);
+    const totalAmount = (fundRequest.articles || []).reduce((sum, a) => sum + (a.value || 0), 0);
 
     // Set row heights for logo section (rows 1-2, each 30)
     worksheet.getRow(1).height = 30;
@@ -591,11 +617,19 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
     poCell.alignment = { vertical: 'middle', horizontal: 'center' };
     worksheet.mergeCells('E1:F1');
 
-    // Date below "PURCHASE ORDER" (row 3)
-    const dateLabelCell = worksheet.getRow(3).getCell(5);
+    // Purchase Order Number and Date below "PURCHASE ORDER" (row 3)
+    const poNumberLabelCell = worksheet.getRow(3).getCell(5);
+    poNumberLabelCell.value = 'PO NO';
+    poNumberLabelCell.font = { size: 10, bold: true };
+    const poNumberValueCell = worksheet.getRow(3).getCell(6);
+    poNumberValueCell.value = purchaseOrderNumber || '';
+    poNumberValueCell.font = { size: 10 };
+    
+    // Date (row 4)
+    const dateLabelCell = worksheet.getRow(4).getCell(5);
     dateLabelCell.value = 'DATE';
     dateLabelCell.font = { size: 10, bold: true };
-    const dateValueCell = worksheet.getRow(3).getCell(6);
+    const dateValueCell = worksheet.getRow(4).getCell(6);
     dateValueCell.value = currentDate;
     dateValueCell.font = { size: 10 };
 
@@ -663,7 +697,7 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
     headerRow.getCell(2).value = 'DESCRIPTION';
     headerRow.getCell(3).value = 'QTY';
     headerRow.getCell(4).value = 'UNIT PRICE';
-    headerRow.getCell(5).value = 'TOTAL';
+    headerRow.getCell(5).value = 'TOTAL\n(Inclusive of Tax)';
 
     // Style header row
     for (let col = 1; col <= 5; col++) {
@@ -674,7 +708,11 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
         pattern: 'solid',
         fgColor: { argb: 'FF008000' },
       };
-      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+      cell.alignment = { 
+        vertical: 'middle', 
+        horizontal: col === 4 || col === 5 ? 'right' : 'center',
+        wrapText: col === 5 // Enable text wrapping for TOTAL column
+      };
       cell.border = {
         top: { style: 'thin' },
         left: { style: 'thin' },
@@ -685,10 +723,10 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
     currentRow++;
 
     // Article data rows
-    fundRequest.articles.forEach((article) => {
+    (fundRequest.articles || []).forEach((article) => {
       const row = worksheet.getRow(currentRow);
       row.getCell(1).value = article.supplier_article_name || article.article_name || '';
-      row.getCell(2).value = ''; // Description left empty
+      row.getCell(2).value = article.description || ''; // Description
       row.getCell(3).value = article.quantity || 0;
       row.getCell(4).value = article.price_including_gst || 0;
       row.getCell(5).value = article.value || 0;
@@ -716,9 +754,9 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
 
     // Total row
     const totalRow = worksheet.getRow(currentRow);
-    totalRow.getCell(4).value = 'TOTAL';
+    totalRow.getCell(4).value = 'TOTAL\n(Inclusive of Tax)';
     totalRow.getCell(4).font = { size: 10, bold: true };
-    totalRow.getCell(4).alignment = { horizontal: 'right' };
+    totalRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
     totalRow.getCell(5).value = totalAmount;
     totalRow.getCell(5).font = { size: 10, bold: true };
     totalRow.getCell(5).numFmt = '₹ #,##0.00';
@@ -825,12 +863,31 @@ const loadLogoAsDataUri = async (): Promise<string | null> => {
  * Generate Purchase Order PDF document for Article fund requests
  */
 export const generatePurchaseOrderPDF = async (fundRequestId: string): Promise<Blob> => {
-  try {
-    const fundRequest = await fetchFundRequestById(fundRequestId);
-    if (!fundRequest) {
-      throw new Error('Fund request not found');
-    }
+  // Generate and store purchase order number if it doesn't exist
+  let fundRequest = await fetchFundRequestById(fundRequestId);
+  if (!fundRequest) {
+    throw new Error('Fund request not found');
+  }
 
+  if (!fundRequest.purchase_order_number) {
+    const purchaseOrderNumber = await generatePurchaseOrderNumber();
+    // Update the fund request with the PO number
+    const { error: updateError } = await supabase
+      .from('fund_request')
+      .update({ purchase_order_number: purchaseOrderNumber })
+      .eq('id', fundRequestId);
+    
+    if (updateError) {
+      console.error('Error updating purchase order number:', updateError);
+      // Continue anyway - we'll use the generated number for the document
+    } else {
+      // Update the local object
+      fundRequest = { ...fundRequest, purchase_order_number: purchaseOrderNumber };
+    }
+  }
+
+  // Continue with existing PDF generation logic
+  try {
     if (fundRequest.fund_request_type !== 'Article') {
       throw new Error('Purchase Order can only be generated for Article type fund requests');
     }

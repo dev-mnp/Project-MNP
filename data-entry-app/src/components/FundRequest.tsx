@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Plus, Edit2, Trash2, Download, Search, Loader2, RefreshCw } from 'lucide-react';
+import { DollarSign, Plus, Edit2, Trash2, Download, Search, Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   fetchFundRequests,
+  fetchFundRequestById,
   deleteFundRequest,
   type FundRequest as FundRequestType,
+  type FundRequestWithDetails,
 } from '../services/fundRequestService';
 import { generateFundRequestDocument, generatePurchaseOrderPDF, storeDocumentMetadata, ENABLE_XLSX_GENERATION } from '../services/documentGenerationService';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -21,6 +23,12 @@ const FundRequest: React.FC = () => {
   const [fundRequests, setFundRequests] = useState<FundRequestType[]>([]);
   const [filteredFundRequests, setFilteredFundRequests] = useState<FundRequestType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Expanded rows state
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [expandedRowDetails, setExpandedRowDetails] = useState<Map<string, FundRequestWithDetails>>(new Map());
+  const [loadingDetails, setLoadingDetails] = useState<Set<string>>(new Set());
   
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,7 +68,14 @@ const FundRequest: React.FC = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [fundRequests, searchQuery, typeFilter, statusFilter, startDate, endDate, sortColumn, sortDirection]);
+  }, [fundRequests, searchQuery, typeFilter, statusFilter, sortColumn, sortDirection]);
+
+  // Reload data when date filters change
+  useEffect(() => {
+    if (isAuthenticated && !isRestoringSession) {
+      loadFundRequests();
+    }
+  }, [startDate, endDate]);
 
   const loadFundRequests = async () => {
     try {
@@ -92,6 +107,22 @@ const FundRequest: React.FC = () => {
 
   const applyFilters = () => {
     let filtered = [...fundRequests];
+
+    // Date filter (client-side for immediate feedback, but data is also filtered server-side)
+    if (startDate) {
+      filtered = filtered.filter((fr) => {
+        if (!fr.created_at) return false;
+        const frDate = new Date(fr.created_at).toISOString().split('T')[0];
+        return frDate >= startDate;
+      });
+    }
+    if (endDate) {
+      filtered = filtered.filter((fr) => {
+        if (!fr.created_at) return false;
+        const frDate = new Date(fr.created_at).toISOString().split('T')[0];
+        return frDate <= endDate;
+      });
+    }
 
     // Search filter
     if (searchQuery.trim()) {
@@ -165,6 +196,36 @@ const FundRequest: React.FC = () => {
     return '⇅';
   };
 
+  // Toggle row expansion
+  const toggleRowExpansion = async (fundRequestId: string) => {
+    if (expandedRowId === fundRequestId) {
+      // Collapse
+      setExpandedRowId(null);
+    } else {
+      // Expand - close any other expanded row first
+      setExpandedRowId(fundRequestId);
+      
+      if (!expandedRowDetails.has(fundRequestId)) {
+        setLoadingDetails(prev => new Set(prev).add(fundRequestId));
+        try {
+          const details = await fetchFundRequestById(fundRequestId);
+          if (details) {
+            setExpandedRowDetails(prev => new Map(prev).set(fundRequestId, details));
+          }
+        } catch (error) {
+          console.error('Failed to fetch fund request details:', error);
+          showError('Failed to load fund request details.');
+        } finally {
+          setLoadingDetails(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(fundRequestId);
+            return newSet;
+          });
+        }
+      }
+    }
+  };
+
   const handleAdd = () => {
     navigate('/fund-request/new');
   };
@@ -180,6 +241,7 @@ const FundRequest: React.FC = () => {
       message: `Are you sure you want to delete fund request ${fundRequestNumber}? This action cannot be undone.`,
       type: 'danger',
       onConfirm: async () => {
+        setIsDeleting(true);
         try {
           await deleteFundRequest(id);
           showSuccess('Fund request deleted successfully.');
@@ -188,6 +250,8 @@ const FundRequest: React.FC = () => {
         } catch (error) {
           console.error('Failed to delete fund request:', error);
           showError('Failed to delete fund request. Please try again.');
+        } finally {
+          setIsDeleting(false);
         }
       },
     });
@@ -196,7 +260,8 @@ const FundRequest: React.FC = () => {
   const handleDownload = async (id: string, type: 'Aid' | 'Article', fundRequestNumber: string) => {
     try {
       setDownloading({ id, type: 'fr' });
-      const blob = await generateFundRequestDocument(id, type);
+      // Hardcoded to landscape - can be changed manually in code if needed
+      const blob = await generateFundRequestDocument(id, type, 'landscape');
       
       // Create download link
       const url = window.URL.createObjectURL(blob);
@@ -255,7 +320,16 @@ const FundRequest: React.FC = () => {
 
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto relative">
+      {/* Full-screen loading overlay for deletion */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 flex flex-col items-center gap-4 shadow-xl">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 dark:text-blue-400" />
+            <p className="text-sm font-medium text-gray-900 dark:text-white">Deleting fund request...</p>
+          </div>
+        </div>
+      )}
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
@@ -408,11 +482,29 @@ const FundRequest: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredFundRequests.map((fundRequest) => (
-                  <tr key={fundRequest.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      {fundRequest.fund_request_number}
-                    </td>
+                {filteredFundRequests.map((fundRequest) => {
+                  const isExpanded = expandedRowId === fundRequest.id;
+                  const details = expandedRowDetails.get(fundRequest.id!);
+                  const isLoadingDetails = loadingDetails.has(fundRequest.id!);
+                  
+                  return (
+                    <React.Fragment key={fundRequest.id}>
+                      <tr 
+                        className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                        onClick={() => toggleRowExpansion(fundRequest.id!)}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                          <div className="flex items-center gap-2">
+                            <span className="p-1">
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
+                            </span>
+                            {fundRequest.fund_request_number}
+                          </div>
+                        </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {fundRequest.fund_request_type}
                     </td>
@@ -422,7 +514,7 @@ const FundRequest: React.FC = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {fundRequest.created_at ? new Date(fundRequest.created_at).toLocaleDateString() : ''}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
                         {canExport() && (
                           <>
@@ -475,7 +567,195 @@ const FundRequest: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  
+                  {/* Expanded Row */}
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-4 bg-gray-50 dark:bg-gray-900">
+                        {isLoadingDetails ? (
+                          <div className="flex justify-center items-center py-8">
+                            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                          </div>
+                        ) : details ? (
+                          <div className="space-y-4">
+                            {details.fund_request_type === 'Article' ? (
+                              <>
+                                {/* Supplier Information */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Supplier Information</h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                                    <div>
+                                      <span className="text-gray-600 dark:text-gray-400">Name:</span>
+                                      <span className="ml-2 text-gray-900 dark:text-white">{details.supplier_name || '-'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600 dark:text-gray-400">GST Number:</span>
+                                      <span className="ml-2 text-gray-900 dark:text-white">{details.gst_number || '-'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600 dark:text-gray-400">Address:</span>
+                                      <span className="ml-2 text-gray-900 dark:text-white">{details.supplier_address || '-'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600 dark:text-gray-400">City:</span>
+                                      <span className="ml-2 text-gray-900 dark:text-white">{details.supplier_city || '-'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600 dark:text-gray-400">State:</span>
+                                      <span className="ml-2 text-gray-900 dark:text-white">{details.supplier_state || '-'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-600 dark:text-gray-400">Pincode:</span>
+                                      <span className="ml-2 text-gray-900 dark:text-white">{details.supplier_pincode || '-'}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                
+                                {/* Articles List */}
+                                {details.articles && details.articles.length > 0 && (
+                                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                    <div className="flex justify-between items-center mb-3">
+                                      <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Articles</h4>
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                                        Total Articles: {details.articles.length}
+                                      </span>
+                                    </div>
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 dark:bg-gray-700">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Article Name</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Supplier Article Name</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Description</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Quantity</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Unit Price</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Value</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                          {details.articles.map((article, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                              <td className="px-3 py-2 text-gray-900 dark:text-white">{article.article_name}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{article.supplier_article_name || '-'}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{article.description || '-'}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{article.quantity}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                                                {CURRENCY_SYMBOL} {article.price_including_gst?.toLocaleString() || '0'}
+                                              </td>
+                                              <td className="px-3 py-2 text-gray-900 dark:text-white font-medium">
+                                                {CURRENCY_SYMBOL} {article.value?.toLocaleString() || '0'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {/* Aid Type */}
+                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Aid Information</h4>
+                                  <div className="text-sm">
+                                    <span className="text-gray-600 dark:text-gray-400">Aid Type:</span>
+                                    <span className="ml-2 text-gray-900 dark:text-white">{details.aid_type || '-'}</span>
+                                  </div>
+                                </div>
+                                
+                                {/* Recipients Breakdown */}
+                                {details.recipients && details.recipients.length > 0 && (
+                                  <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                                    <div className="flex justify-between items-center mb-3">
+                                      <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Recipients</h4>
+                                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                                        Total Recipients: {details.recipients.length}
+                                      </span>
+                                    </div>
+                                    
+                                    {/* Beneficiary Type Breakdown */}
+                                    <div className="mb-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                                      <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                                        <div className="text-xs text-gray-600 dark:text-gray-400">District</div>
+                                        <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                          {details.recipients.filter(r => r.beneficiary_type === 'District').length}
+                                        </div>
+                                      </div>
+                                      <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                                        <div className="text-xs text-gray-600 dark:text-gray-400">Public</div>
+                                        <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                          {details.recipients.filter(r => r.beneficiary_type === 'Public').length}
+                                        </div>
+                                      </div>
+                                      <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                                        <div className="text-xs text-gray-600 dark:text-gray-400">Institutions</div>
+                                        <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                          {details.recipients.filter(r => r.beneficiary_type === 'Institutions').length}
+                                        </div>
+                                      </div>
+                                      <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
+                                        <div className="text-xs text-gray-600 dark:text-gray-400">Others</div>
+                                        <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                                          {details.recipients.filter(r => r.beneficiary_type === 'Others').length}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Recipients Detail Table */}
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-sm">
+                                        <thead className="bg-gray-50 dark:bg-gray-700">
+                                          <tr>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Beneficiary Type</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Recipient Name</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Fund Requested</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">Aadhaar No</th>
+                                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300">District</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                          {details.recipients.map((recipient, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                              <td className="px-3 py-2 text-gray-900 dark:text-white">{recipient.beneficiary_type || '-'}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                                                {recipient.recipient_name || recipient.name_of_beneficiary || recipient.name_of_institution || '-'}
+                                              </td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                                                {CURRENCY_SYMBOL} {recipient.fund_requested?.toLocaleString() || '0'}
+                                              </td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{recipient.aadhar_number || '-'}</td>
+                                              <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
+                                                {recipient.beneficiary_type === 'District' && recipient.beneficiary
+                                                  ? (() => {
+                                                      // Extract district name from beneficiary field
+                                                      // Format: "D XXX - DistrictName - ₹ amount"
+                                                      const parts = recipient.beneficiary.split(' - ');
+                                                      return parts.length >= 2 ? parts[1] : '-';
+                                                    })()
+                                                  : '-'}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                            Failed to load details
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                );
+                })}
               </tbody>
             </table>
           </div>
