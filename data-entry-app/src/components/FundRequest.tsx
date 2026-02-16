@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Plus, Edit2, Trash2, Download, Search, Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { DollarSign, Plus, Edit2, Trash2, Download, Search, Loader2, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import {
   fetchFundRequests,
@@ -14,6 +14,7 @@ import { useRBAC } from '../contexts/RBACContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 import { ConfirmDialog } from './ConfirmDialog';
+import ExcelJS from 'exceljs';
 
 const FundRequest: React.FC = () => {
   const navigate = useNavigate();
@@ -57,6 +58,12 @@ const FundRequest: React.FC = () => {
 
   // Download loading state - track both ID and type (fr or po)
   const [downloading, setDownloading] = useState<{ id: string; type: 'fr' | 'po' } | null>(null);
+
+  // Export state
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportAid, setExportAid] = useState(false);
+  const [exportArticle, setExportArticle] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Only load data when authenticated and not restoring
   useEffect(() => {
@@ -318,6 +325,363 @@ const FundRequest: React.FC = () => {
     }
   };
 
+  const handleExport = async () => {
+    if (!exportAid && !exportArticle) {
+      showError('Please select at least one type to export.');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      // Filter fund requests based on selected types
+      const frsToExport = filteredFundRequests.filter(fr => {
+        if (exportAid && fr.fund_request_type === 'Aid') return true;
+        if (exportArticle && fr.fund_request_type === 'Article') return true;
+        return false;
+      });
+
+      if (frsToExport.length === 0) {
+        showError('No fund requests found for the selected types.');
+        setExporting(false);
+        return;
+      }
+
+      // Create workbook
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Fund Requests');
+      let currentRow = 1;
+
+      // Header rows with formatting
+      const headerRow1 = worksheet.getRow(currentRow);
+      headerRow1.getCell(1).value = 'OMSAKTHI';
+      headerRow1.getCell(1).font = { size: 10, bold: true }; // Smaller font for OMSAKTHI
+      headerRow1.getCell(1).alignment = { horizontal: 'center' };
+      worksheet.mergeCells(currentRow, 1, currentRow, 9);
+      currentRow++;
+
+      const headerRow2 = worksheet.getRow(currentRow);
+      headerRow2.getCell(1).value = 'MASM Social Welfare Programme Payment Request Details for Distribution on the eve of 86th Birthday Celebrations of';
+      headerRow2.getCell(1).font = { size: 12, bold: true };
+      headerRow2.getCell(1).alignment = { horizontal: 'center', wrapText: true };
+      worksheet.mergeCells(currentRow, 1, currentRow, 9);
+      currentRow++;
+
+      const headerRow3 = worksheet.getRow(currentRow);
+      headerRow3.getCell(1).value = 'His Holiness AMMA at Melmaruvathur on 02.03.2021';
+      headerRow3.getCell(1).font = { size: 12, bold: true };
+      headerRow3.getCell(1).alignment = { horizontal: 'center' };
+      worksheet.mergeCells(currentRow, 1, currentRow, 9);
+      currentRow += 2; // Empty row
+
+      // Title
+      const titleRow = worksheet.getRow(currentRow);
+      titleRow.getCell(1).value = 'Payment Request - MASTER LIST';
+      titleRow.getCell(1).font = { size: 14, bold: true };
+      titleRow.getCell(1).alignment = { horizontal: 'center' };
+      worksheet.mergeCells(currentRow, 1, currentRow, 9);
+      currentRow += 2; // Empty row
+
+      // Collect all data and consolidated list
+      const aidExportData: any[] = [];
+      const articleExportData: any[] = [];
+      const consolidatedData: { 'Fund Request Number': string; 'Amount': number }[] = [];
+      let grandTotal = 0;
+
+      // Process Aid fund requests
+      if (exportAid) {
+        const aidFRs = frsToExport.filter(fr => fr.fund_request_type === 'Aid');
+        for (const fr of aidFRs) {
+          const details = await fetchFundRequestById(fr.id!);
+          let frTotal = 0;
+          if (details && details.recipients) {
+            for (const recipient of details.recipients) {
+              const amount = recipient.fund_requested || 0;
+              frTotal += amount;
+              aidExportData.push({
+                'Fund Request Number': fr.fund_request_number,
+                'Beneficiary Type': recipient.beneficiary_type || '',
+                'Aid Type': fr.aid_type || '',
+                'Recipient Name': recipient.recipient_name || '',
+                'Aadhaar Number': recipient.aadhar_number || '',
+                'Total Amount': amount,
+                'Cheque/RTGS in Favour': recipient.cheque_in_favour || '',
+                'Cheque SL No': recipient.cheque_sl_no || '',
+              });
+            }
+          }
+          consolidatedData.push({
+            'Fund Request Number': fr.fund_request_number,
+            'Amount': frTotal,
+          });
+          grandTotal += frTotal;
+        }
+      }
+
+      // Process Article fund requests
+      if (exportArticle) {
+        const articleFRs = frsToExport.filter(fr => fr.fund_request_type === 'Article');
+        for (const fr of articleFRs) {
+          const details = await fetchFundRequestById(fr.id!);
+          let frTotal = 0;
+          if (details) {
+            let beneficiaryType = 'District';
+            if (details.recipients && details.recipients.length > 0) {
+              beneficiaryType = details.recipients[0].beneficiary_type || 'District';
+            }
+
+            if (details.articles) {
+              for (const article of details.articles) {
+                const articleValue = article.value || 0;
+                frTotal += articleValue;
+                articleExportData.push({
+                  'Fund Request Number': fr.fund_request_number,
+                  'Beneficiary Type': beneficiaryType,
+                  'Article Name': article.article_name || '',
+                  'GST Number': article.gst_no || fr.gst_number || '',
+                  'Quantity': article.quantity || 0,
+                  'Unit Price': article.unit_price || 0,
+                  'Total': articleValue,
+                  'Cheque/RTGS in Favour': article.cheque_in_favour || '',
+                  'Cheque SL No': article.cheque_sl_no || '',
+                });
+              }
+            }
+          }
+          consolidatedData.push({
+            'Fund Request Number': fr.fund_request_number,
+            'Amount': frTotal,
+          });
+          grandTotal += frTotal;
+        }
+      }
+
+      // Add Aid data section
+      if (aidExportData.length > 0) {
+        const aidHeaders = ['Fund Request Number', 'Beneficiary Type', 'Aid Type', 'Recipient Name', 'Aadhaar Number', 'Total Amount', 'Cheque/RTGS in Favour', 'Cheque SL No'];
+        
+        // Section header
+        const sectionRow = worksheet.getRow(currentRow);
+        sectionRow.getCell(1).value = 'AID FUND REQUESTS';
+        sectionRow.getCell(1).font = { size: 12, bold: true };
+        worksheet.mergeCells(currentRow, 1, currentRow, 9);
+        currentRow++;
+
+        // Add headers
+        const headerRow = worksheet.getRow(currentRow);
+        aidHeaders.forEach((header, idx) => {
+          const cell = headerRow.getCell(idx + 1);
+          cell.value = header;
+          cell.font = { bold: true, size: 11 };
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE0E0E0' },
+          };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' },
+          };
+        });
+        currentRow++;
+
+        // Add data rows
+        aidExportData.forEach(row => {
+          const dataRow = worksheet.getRow(currentRow);
+          aidHeaders.forEach((header, idx) => {
+            const cell = dataRow.getCell(idx + 1);
+            cell.value = row[header] ?? '';
+            cell.alignment = { horizontal: idx === 5 ? 'right' : 'left', vertical: 'middle' };
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' },
+            };
+          });
+          currentRow++;
+        });
+        currentRow++; // Empty row
+      }
+
+      // Add Article data section
+      if (articleExportData.length > 0) {
+        const articleHeaders = ['Fund Request Number', 'Beneficiary Type', 'Article Name', 'GST Number', 'Quantity', 'Unit Price', 'Total', 'Cheque/RTGS in Favour', 'Cheque SL No'];
+        
+        // Section header
+        const sectionRow = worksheet.getRow(currentRow);
+        sectionRow.getCell(1).value = 'ARTICLE FUND REQUESTS';
+        sectionRow.getCell(1).font = { size: 12, bold: true };
+        worksheet.mergeCells(currentRow, 1, currentRow, 9);
+        currentRow++;
+
+        // Add headers
+        const headerRow = worksheet.getRow(currentRow);
+        articleHeaders.forEach((header, idx) => {
+          const cell = headerRow.getCell(idx + 1);
+          cell.value = header;
+          cell.font = { bold: true, size: 11 };
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE0E0E0' },
+          };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' },
+          };
+        });
+        currentRow++;
+
+        // Add data rows
+        articleExportData.forEach(row => {
+          const dataRow = worksheet.getRow(currentRow);
+          articleHeaders.forEach((header, idx) => {
+            const cell = dataRow.getCell(idx + 1);
+            cell.value = row[header] ?? '';
+            cell.alignment = { horizontal: (idx === 4 || idx === 5 || idx === 6) ? 'right' : 'left', vertical: 'middle' };
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' },
+            };
+          });
+          currentRow++;
+        });
+        currentRow++; // Empty row
+      }
+
+      // Add Consolidated List
+      const consolidatedHeaderRow = worksheet.getRow(currentRow);
+      consolidatedHeaderRow.getCell(1).value = 'CONSOLIDATED LIST';
+      consolidatedHeaderRow.getCell(1).font = { size: 12, bold: true };
+      worksheet.mergeCells(currentRow, 1, currentRow, 2);
+      currentRow++;
+
+      // Consolidated headers
+      const consHeaderRow = worksheet.getRow(currentRow);
+      consHeaderRow.getCell(1).value = 'Fund Request Number';
+      consHeaderRow.getCell(2).value = 'Amount';
+      consHeaderRow.getCell(1).font = { bold: true, size: 11 };
+      consHeaderRow.getCell(2).font = { bold: true, size: 11 };
+      consHeaderRow.getCell(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' },
+      };
+      consHeaderRow.getCell(2).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' },
+      };
+      consHeaderRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      consHeaderRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
+      consHeaderRow.getCell(1).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+      consHeaderRow.getCell(2).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+      currentRow++;
+
+      // Consolidated data rows
+      consolidatedData.forEach(row => {
+        const dataRow = worksheet.getRow(currentRow);
+        dataRow.getCell(1).value = row['Fund Request Number'];
+        dataRow.getCell(2).value = row['Amount'];
+        dataRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+        dataRow.getCell(2).alignment = { horizontal: 'right', vertical: 'middle' };
+        dataRow.getCell(1).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+        dataRow.getCell(2).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+        currentRow++;
+      });
+
+      // Total row
+      const totalRow = worksheet.getRow(currentRow);
+      totalRow.getCell(1).value = 'TOTAL';
+      totalRow.getCell(2).value = grandTotal;
+      totalRow.getCell(1).font = { bold: true, size: 11 };
+      totalRow.getCell(2).font = { bold: true, size: 11 };
+      totalRow.getCell(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' },
+      };
+      totalRow.getCell(2).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' },
+      };
+      totalRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+      totalRow.getCell(2).alignment = { horizontal: 'right', vertical: 'middle' };
+      totalRow.getCell(1).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+      totalRow.getCell(2).border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' },
+      };
+
+      // Set column widths
+      worksheet.columns.forEach((column, idx) => {
+        if (column) {
+          column.width = idx === 0 ? 20 : idx === 1 ? 18 : idx === 2 ? 20 : idx === 3 ? 25 : idx === 4 ? 15 : idx === 5 ? 15 : idx === 6 ? 15 : idx === 7 ? 20 : 15;
+        }
+      });
+
+      // Generate buffer and download
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const timestamp = new Date().toISOString().split('T')[0];
+      link.setAttribute('href', url);
+      link.setAttribute('download', `fund-requests-${timestamp}.xlsx`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showSuccess('Export completed successfully.');
+      setShowExportModal(false);
+      setExportAid(false);
+      setExportArticle(false);
+    } catch (error) {
+      console.error('Failed to export fund requests:', error);
+      showError('Failed to export fund requests. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
 
   return (
     <div className="p-6 max-w-7xl mx-auto relative">
@@ -350,6 +714,15 @@ const FundRequest: React.FC = () => {
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
+          {canExport() && (
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Export</span>
+            </button>
+          )}
           {canCreate() && (
             <button
               onClick={handleAdd}
@@ -763,6 +1136,90 @@ const FundRequest: React.FC = () => {
       )}
 
       {/* Confirm Dialog */}
+      {/* Export Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+                Export Fund Requests
+              </h2>
+              <button
+                onClick={() => {
+                  setShowExportModal(false);
+                  setExportAid(false);
+                  setExportArticle(false);
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Select the types of fund requests to export. Separate CSV files will be generated for each type.
+              </p>
+
+              <div className="space-y-3">
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportAid}
+                    onChange={(e) => setExportAid(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-900 dark:text-white">Export Aid Fund Requests</span>
+                </label>
+
+                <label className="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exportArticle}
+                    onChange={(e) => setExportArticle(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-gray-900 dark:text-white">Export Article Fund Requests</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    setExportAid(false);
+                    setExportArticle(false);
+                  }}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  disabled={exporting}
+                >
+                  Cancel
+                </button>
+                {canExport() && (
+                  <button
+                    onClick={handleExport}
+                    disabled={exporting || (!exportAid && !exportArticle)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {exporting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Exporting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4" />
+                        <span>Export</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
         title={confirmDialog.title}
