@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Plus, Trash2, X, CheckCircle2 } from 'lucide-react';
 import {
   fetchFundRequestById,
   createFundRequest,
@@ -24,6 +24,12 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 import MultiSelectArticles from './MultiSelectArticles';
 import type { ArticleSelection } from '../data/mockData';
+import {
+  saveFundRequestDraft,
+  loadFundRequestDraft,
+  clearFundRequestDraft,
+  formatDraftTimestamp,
+} from '../utils/autoSave';
 
 interface RecipientFormData extends Omit<FundRequestRecipient, 'id' | 'fund_request_id' | 'created_at'> {
   beneficiaryType?: 'District' | 'Public' | 'Institutions' | 'Others';
@@ -93,6 +99,106 @@ const FundRequestForm: React.FC = () => {
   const [districts, setDistricts] = useState<District[]>([]);
   const [loadingDistricts, setLoadingDistricts] = useState(false);
 
+  // Auto-save refs
+  const isInitialMount = useRef(true);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasRestoredDraft = useRef(false);
+  const savedDraftRef = useRef<ReturnType<typeof loadFundRequestDraft>>(null);
+
+  // Draft notification state
+  const [draftNotification, setDraftNotification] = useState<{
+    isOpen: boolean;
+    timestamp: string;
+  }>({
+    isOpen: false,
+    timestamp: '',
+  });
+  const draftNotificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Restore draft on mount (only for new forms)
+  useEffect(() => {
+    if (!id && !hasRestoredDraft.current) {
+      const draft = loadFundRequestDraft();
+      if (draft) {
+        // Auto-restore draft
+        setFundRequestType(draft.fundRequestType);
+        setFormData(draft.formData);
+        // Convert draft recipients to local RecipientFormData format
+        const restoredRecipients: RecipientFormData[] = (draft.recipients || []).map(r => ({
+          beneficiaryType: r.beneficiaryType,
+          recipient_name: r.recipient_name || '',
+          beneficiary: r.beneficiary || '',
+          name_of_beneficiary: r.name_of_beneficiary || '',
+          name_of_institution: r.name_of_institution || '',
+          details: r.details || '',
+          fund_requested: r.fund_requested || 0,
+          aadhar_number: r.aadhar_number || '',
+          address: r.address || '',
+          cheque_in_favour: r.cheque_in_favour || '',
+          cheque_sl_no: r.cheque_sl_no || '',
+          notes: r.notes || '',
+        }));
+        setRecipients(restoredRecipients);
+        setSelectedArticles(draft.selectedArticles || []);
+        setGstNumber(draft.gstNumber || '');
+        setSupplierName(draft.supplierName || '');
+        setSupplierAddress(draft.supplierAddress || '');
+        setSupplierCity(draft.supplierCity || '');
+        setSupplierState(draft.supplierState || '');
+        setSupplierPincode(draft.supplierPincode || '');
+        
+        // Restore articleDetails Map
+        if (draft.articleDetails && draft.articleDetails.length > 0) {
+          const restoredMap = new Map(draft.articleDetails);
+          setArticleDetails(restoredMap);
+        }
+        
+        // Restore selectedBeneficiaries Set
+        if (draft.selectedBeneficiaries && draft.selectedBeneficiaries.length > 0) {
+          setSelectedBeneficiaries(new Set(draft.selectedBeneficiaries));
+        }
+
+        // Show notification with timestamp
+        const timestamp = formatDraftTimestamp(draft.timestamp);
+        setDraftNotification({
+          isOpen: true,
+          timestamp,
+        });
+
+        // Auto-dismiss after 10 seconds
+        draftNotificationTimeoutRef.current = setTimeout(() => {
+          setDraftNotification({ isOpen: false, timestamp: '' });
+        }, 10000);
+
+        hasRestoredDraft.current = true;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Function to clear draft
+  const handleClearDraft = () => {
+    // Clear timeout if still running
+    if (draftNotificationTimeoutRef.current) {
+      clearTimeout(draftNotificationTimeoutRef.current);
+      draftNotificationTimeoutRef.current = null;
+    }
+    clearFundRequestDraft();
+    savedDraftRef.current = null;
+    setDraftNotification({ isOpen: false, timestamp: '' });
+    showSuccess('Draft cleared.');
+  };
+
+  // Function to close notification
+  const handleCloseDraftNotification = () => {
+    // Clear timeout if still running
+    if (draftNotificationTimeoutRef.current) {
+      clearTimeout(draftNotificationTimeoutRef.current);
+      draftNotificationTimeoutRef.current = null;
+    }
+    setDraftNotification({ isOpen: false, timestamp: '' });
+  };
+
   useEffect(() => {
     loadArticles();
     loadUsedBeneficiaries();
@@ -103,6 +209,7 @@ const FundRequestForm: React.FC = () => {
     if (id) {
       loadFundRequest();
     }
+    isInitialMount.current = false;
   }, [id]);
 
   useEffect(() => {
@@ -182,6 +289,94 @@ const FundRequestForm: React.FC = () => {
       calculateAidTotal();
     }
   }, [selectedArticles, articleDetails, recipients, fundRequestType]);
+
+  // Auto-save on state changes (debounced)
+  useEffect(() => {
+    // Don't save on initial mount or if editing existing FR
+    if (isInitialMount.current || id) {
+      return;
+    }
+
+    // Don't save if form is empty (no meaningful data)
+    const hasData = 
+      (fundRequestType === 'Aid' && recipients.length > 0) ||
+      (fundRequestType === 'Article' && selectedArticles.length > 0) ||
+      formData.aid_type ||
+      gstNumber ||
+      supplierName ||
+      supplierAddress ||
+      supplierCity ||
+      supplierState ||
+      supplierPincode ||
+      formData.notes;
+
+    if (!hasData) {
+      return;
+    }
+
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Debounce save (500ms)
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      try {
+        const draftData = {
+          fundRequestType,
+          formData,
+          recipients: recipients.map(r => ({
+            beneficiaryType: r.beneficiaryType,
+            recipient_name: r.recipient_name || '',
+            beneficiary: r.beneficiary || '',
+            name_of_beneficiary: r.name_of_beneficiary || '',
+            name_of_institution: r.name_of_institution || '',
+            details: r.details || '',
+            fund_requested: r.fund_requested || 0,
+            aadhar_number: r.aadhar_number || '',
+            address: r.address || '',
+            cheque_in_favour: r.cheque_in_favour || '',
+            cheque_sl_no: r.cheque_sl_no || '',
+            notes: r.notes || '',
+          })),
+          selectedArticles,
+          gstNumber,
+          supplierName,
+          supplierAddress,
+          supplierCity,
+          supplierState,
+          supplierPincode,
+          articleDetails: Array.from(articleDetails.entries()),
+          selectedBeneficiaries: Array.from(selectedBeneficiaries),
+        };
+
+        saveFundRequestDraft(draftData);
+      } catch (error) {
+        console.error('Error auto-saving draft:', error);
+      }
+    }, 500);
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [
+    fundRequestType,
+    formData,
+    recipients,
+    selectedArticles,
+    gstNumber,
+    supplierName,
+    supplierAddress,
+    supplierCity,
+    supplierState,
+    supplierPincode,
+    articleDetails,
+    selectedBeneficiaries,
+    id,
+  ]);
 
   const loadArticles = async () => {
     try {
@@ -670,6 +865,9 @@ const FundRequestForm: React.FC = () => {
         }
       }
 
+      // Clear draft after successful save
+      clearFundRequestDraft(id);
+      
       showSuccess(id ? 'Fund request updated successfully.' : 'Fund request created successfully.');
       navigate('/fund-request');
     } catch (error) {
@@ -1442,6 +1640,39 @@ const FundRequestForm: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Draft Restoration Notification */}
+      {draftNotification.isOpen && (
+        <div className="fixed top-4 right-4 z-50 animate-slide-in">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg shadow-lg p-4 min-w-[350px] max-w-[450px]">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                  Draft successfully restored from {draftNotification.timestamp}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleClearDraft}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 hover:text-gray-900 dark:hover:text-gray-100 rounded transition-all duration-200 whitespace-nowrap transform hover:scale-105 active:scale-95"
+                >
+                  Clear Draft
+                </button>
+                <button
+                  onClick={handleCloseDraftNotification}
+                  className="flex-shrink-0 text-green-400 hover:text-green-600 dark:hover:text-green-300 transition-colors"
+                  aria-label="Close notification"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

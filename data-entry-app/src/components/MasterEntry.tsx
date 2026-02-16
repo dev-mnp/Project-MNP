@@ -3183,7 +3183,7 @@ const MasterEntry: React.FC = () => {
                           {record.districtName}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                          {record.selectedArticles?.length || 0} article(s)
+                          {record.selectedArticles?.length || 0} article(s), {record.selectedArticles?.reduce((sum, article) => sum + (article.quantity || 0), 0) || 0} quantity
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
