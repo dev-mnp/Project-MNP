@@ -710,7 +710,7 @@ const ArticleManagement: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Search
@@ -763,7 +763,7 @@ const ArticleManagement: React.FC = () => {
                 </select>
               </div>
 
-              <div>
+              <div className="sm:col-span-2 lg:col-span-1">
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Date Range
                 </label>
@@ -772,15 +772,15 @@ const ArticleManagement: React.FC = () => {
                     type="date"
                     value={dateFilter.start || ''}
                     onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value || null })}
-                    className="flex-1 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
                   />
-                  <span className="text-xs text-gray-500 dark:text-gray-400">to</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">to</span>
                   <input
                     type="date"
                     value={dateFilter.end || ''}
                     onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value || null })}
                     min={dateFilter.start || undefined}
-                    className="flex-1 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                    className="flex-1 min-w-0 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
                   />
                   {(dateFilter.start || dateFilter.end) && (
                     <button
@@ -793,7 +793,7 @@ const ArticleManagement: React.FC = () => {
                   )}
                 </div>
               </div>
-      </div>
+            </div>
           </div>
 
           {/* Articles Table */}

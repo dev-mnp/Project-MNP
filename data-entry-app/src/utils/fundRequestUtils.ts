@@ -39,7 +39,7 @@ export function formatDate(dateString: string | undefined): string {
 
 /**
  * Get the correct beneficiary display value based on beneficiary type
- * - For District type: Extract district name (between first and second '-')
+ * - For District type: Use district_name if available, otherwise extract from beneficiary string
  * - For Public type: Extract application number (before first '-')
  * - For other types: Return the beneficiary field as-is
  */
@@ -47,7 +47,11 @@ export function getBeneficiaryDisplayValue(recipient: FundRequestRecipient): str
   if (!recipient.beneficiary) return '';
   
   if (recipient.beneficiary_type === 'District') {
-    // Extract district name (between first and second '-')
+    // Use district_name if available (preferred)
+    if (recipient.district_name) {
+      return recipient.district_name;
+    }
+    // Fallback: Extract district name (between first and second '-')
     // Format: "D XXX - DistrictName - ₹ amount"
     const parts = recipient.beneficiary.split(' - ');
     return parts.length >= 2 ? parts[1] : recipient.beneficiary;
@@ -59,5 +63,46 @@ export function getBeneficiaryDisplayValue(recipient: FundRequestRecipient): str
   }
   
   return recipient.beneficiary;
+}
+
+/**
+ * Get beneficiary display value for export
+ * - For Article: return "All Districts & Public"
+ * - For Aid District: use district_name if available, otherwise extract from beneficiary
+ * - For Aid Public/Institutions/Others: extract application number (before first '-')
+ */
+export function getBeneficiaryDisplayValueForExport(
+  recipient: FundRequestRecipient | null,
+  fundRequestType: 'Aid' | 'Article'
+): string {
+  if (fundRequestType === 'Article') {
+    return 'All Districts & Public';
+  }
+  
+  if (!recipient) return '';
+  
+  if (recipient.beneficiary_type === 'District') {
+    // Use district_name if available (preferred)
+    if (recipient.district_name) {
+      return recipient.district_name;
+    }
+    // Fallback: Extract district name (between first and second '-')
+    if (recipient.beneficiary) {
+      const parts = recipient.beneficiary.split(' - ');
+      return parts.length >= 2 ? parts[1] : recipient.beneficiary;
+    }
+    return '';
+  } else if (recipient.beneficiary_type === 'Public' || 
+             recipient.beneficiary_type === 'Institutions' || 
+             recipient.beneficiary_type === 'Others') {
+    // Extract application number (before first '-')
+    if (recipient.beneficiary) {
+      const parts = recipient.beneficiary.split(' - ');
+      return parts.length >= 1 ? parts[0].trim() : recipient.beneficiary;
+    }
+    return '';
+  }
+  
+  return recipient.beneficiary || '';
 }
 

@@ -85,7 +85,7 @@ const FundRequestForm: React.FC = () => {
     price_including_gst?: number;
     supplier_article_name?: string;
     cheque_in_favour?: string;
-    cheque_sl_no?: string;
+    cheque_no?: string;
   }>>(new Map());
 
   // Validation errors
@@ -135,8 +135,9 @@ const FundRequestForm: React.FC = () => {
           aadhar_number: r.aadhar_number || '',
           address: r.address || '',
           cheque_in_favour: r.cheque_in_favour || '',
-          cheque_sl_no: r.cheque_sl_no || '',
+          cheque_no: r.cheque_no || '',
           notes: r.notes || '',
+          district_name: r.district_name,
         }));
         setRecipients(restoredRecipients);
         setSelectedArticles(draft.selectedArticles || []);
@@ -226,6 +227,16 @@ const FundRequestForm: React.FC = () => {
       setSupplierState('Tamil Nadu');
     }
   }, [fundRequestType, supplierState]);
+
+  // Set default comments for Article type when form loads
+  useEffect(() => {
+    if (fundRequestType === 'Article' && !id && !formData.notes) {
+      setFormData(prev => ({
+        ...prev,
+        notes: 'Delivery period - within a week.\nPayment terms - immediate after delivery.\nTransport cost - inclusive/exclusive.',
+      }));
+    }
+  }, [fundRequestType, id]);
 
   // Reload beneficiaries when aid_type changes
   useEffect(() => {
@@ -336,8 +347,9 @@ const FundRequestForm: React.FC = () => {
             aadhar_number: r.aadhar_number || '',
             address: r.address || '',
             cheque_in_favour: r.cheque_in_favour || '',
-            cheque_sl_no: r.cheque_sl_no || '',
+            cheque_no: r.cheque_no || '',
             notes: r.notes || '',
+            district_name: r.district_name,
           })),
           selectedArticles,
           gstNumber,
@@ -459,8 +471,9 @@ const FundRequestForm: React.FC = () => {
             fund_requested: r.fund_requested,
             aadhar_number: r.aadhar_number,
             cheque_in_favour: r.cheque_in_favour,
-            cheque_sl_no: r.cheque_sl_no,
+            cheque_no: r.cheque_no,
             notes: r.notes,
+            district_name: r.district_name,
           }));
           setRecipients(loadedRecipients);
           
@@ -497,7 +510,7 @@ const FundRequestForm: React.FC = () => {
               price_including_gst: a.price_including_gst,
               supplier_article_name: a.supplier_article_name,
               cheque_in_favour: a.cheque_in_favour,
-              cheque_sl_no: a.cheque_sl_no,
+              cheque_no: a.cheque_no,
             });
           });
           setArticleDetails(detailsMap);
@@ -727,7 +740,11 @@ const FundRequestForm: React.FC = () => {
         } else if (!/^\d{12}$/.test(recipient.aadhar_number)) {
           newErrors[`aadhar_number_${index}`] = 'Aadhar number must be exactly 12 digits';
         }
-        // cheque_in_favour and cheque_sl_no are optional
+        // Notes (Details) is mandatory for Aid
+        if (!recipient.notes || recipient.notes.trim() === '') {
+          newErrors[`notes_${index}`] = 'Details is required';
+        }
+        // cheque_in_favour and cheque_no are optional
       });
     } else {
       // Validate GST number and supplier fields for Article type
@@ -805,8 +822,9 @@ const FundRequestForm: React.FC = () => {
               aadhar_number: r.aadhar_number,
               address: r.address,
               cheque_in_favour: r.cheque_in_favour,
-              cheque_sl_no: r.cheque_sl_no,
+              cheque_no: r.cheque_no,
               notes: r.notes,
+              district_name: r.district_name,
             })),
           });
         } else {
@@ -823,8 +841,9 @@ const FundRequestForm: React.FC = () => {
               aadhar_number: r.aadhar_number,
               address: r.address,
               cheque_in_favour: r.cheque_in_favour,
-              cheque_sl_no: r.cheque_sl_no,
+              cheque_no: r.cheque_no,
               notes: r.notes,
+              district_name: r.district_name,
             })),
           });
         }
@@ -847,7 +866,7 @@ const FundRequestForm: React.FC = () => {
             cumulative: 0, // Remove cumulative calculation
             supplier_article_name: article.supplier_article_name || details.supplier_article_name,
             cheque_in_favour: article.cheque_in_favour || details.cheque_in_favour,
-            cheque_sl_no: details.cheque_sl_no, // Still from articleDetails (not in ArticleRow yet)
+            cheque_no: details.cheque_no, // Still from articleDetails (not in ArticleRow yet)
             description: article.description,
           };
         });
@@ -889,7 +908,7 @@ const FundRequestForm: React.FC = () => {
       fund_requested: 0,
       aadhar_number: '',
       cheque_in_favour: '',
-      cheque_sl_no: '',
+      cheque_no: '',
       notes: '',
     };
 
@@ -977,12 +996,35 @@ const FundRequestForm: React.FC = () => {
                 };
               }
               
-              // Auto-fill aadhar_number for public beneficiaries if available and field is empty
-              if (recipient.beneficiaryType === 'Public' && selectedOption.aadhar_number && !updated[index].aadhar_number) {
+              // For District beneficiaries, set district_name from the option if available
+              if (recipient.beneficiaryType === 'District' && selectedOption.district_name) {
                 updated[index] = {
                   ...updated[index],
-                  aadhar_number: selectedOption.aadhar_number,
+                  district_name: selectedOption.district_name,
                 };
+              }
+              
+              // Auto-fill name and aadhar_number for public beneficiaries
+              if (recipient.beneficiaryType === 'Public') {
+                const updates: Partial<RecipientFormData> = {};
+                
+                // Auto-fill name from beneficiary option
+                if (selectedOption.name) {
+                  updates.name_of_beneficiary = selectedOption.name;
+                  updates.recipient_name = selectedOption.name;
+                }
+                
+                // Auto-fill aadhar_number (always update, not just when empty)
+                if (selectedOption.aadhar_number) {
+                  updates.aadhar_number = selectedOption.aadhar_number;
+                }
+                
+                if (Object.keys(updates).length > 0) {
+                  updated[index] = {
+                    ...updated[index],
+                    ...updates,
+                  };
+                }
               }
               
               setRecipients(updated);
@@ -1248,10 +1290,12 @@ const FundRequestForm: React.FC = () => {
                               value={recipient.selectedDistrictId || ''}
                               onChange={(e) => {
                                 const districtIdValue = e.target.value || undefined;
+                                const selectedDistrict = districts.find(d => d.id === districtIdValue);
                                 const updated = [...recipients];
                                 updated[index] = {
                                   ...updated[index],
                                   selectedDistrictId: districtIdValue,
+                                  district_name: selectedDistrict?.name || undefined,
                                   beneficiary: '', // Clear beneficiary when district changes
                                   beneficiaryOptions: undefined, // Clear options to force reload
                                   loadingBeneficiaries: true, // Show loading state
@@ -1411,6 +1455,25 @@ const FundRequestForm: React.FC = () => {
                         />
                         {errors[`aadhar_number_${index}`] && (
                           <p className="mt-1 text-xs text-red-500">{errors[`aadhar_number_${index}`]}</p>
+                        )}
+                      </div>
+
+                      {/* Notes - Mandatory for Aid */}
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                          Details <span className="text-red-500">*</span>
+                        </label>
+                        <textarea
+                          value={recipient.notes || ''}
+                          onChange={(e) => handleRecipientChange(index, 'notes', e.target.value)}
+                          rows={2}
+                          className={`w-full px-3 py-2 text-sm border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white ${
+                            errors[`notes_${index}`] ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+                          }`}
+                          placeholder="Enter details"
+                        />
+                        {errors[`notes_${index}`] && (
+                          <p className="mt-1 text-xs text-red-500">{errors[`notes_${index}`]}</p>
                         )}
                       </div>
 
@@ -1593,21 +1656,20 @@ const FundRequestForm: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-        )}
 
-        {/* Notes - Only show for Aid type */}
-        {fundRequestType === 'Aid' && (
-          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Notes
-            </label>
-            <textarea
-              value={formData.notes || ''}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
+            {/* Comments - Only for Article type */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Comments
+              </label>
+              <textarea
+                value={formData.notes || ''}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                placeholder="Enter comments"
+              />
+            </div>
           </div>
         )}
 

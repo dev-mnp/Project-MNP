@@ -1804,6 +1804,7 @@ const MasterEntry: React.FC = () => {
               'Beneficiary Type': 'District',
               'Item Type': '',
               'Article Category': '',
+              'Super Category Article': '',
               'Requested Item Tk': '',
               'Comments': '',
             }];
@@ -1826,6 +1827,7 @@ const MasterEntry: React.FC = () => {
               'Beneficiary Type': 'District',
               'Item Type': articleData?.item_type || '',
               'Article Category': articleData?.category || '',
+              'Super Category Article': articleData?.master_category || '',
               'Requested Item Tk': articleData?.article_name_tk || '',
               'Comments': article.comments || '',
             };
@@ -1881,6 +1883,7 @@ const MasterEntry: React.FC = () => {
             'Beneficiary Type': 'Public',
             'Item Type': articleData?.item_type || '',
             'Article Category': articleData?.category || '',
+            'Super Category Article': articleData?.master_category || '',
             'Requested Item Tk': articleData?.article_name_tk || '',
             'Comments': entry.notes || '',
           };
@@ -1961,6 +1964,7 @@ const MasterEntry: React.FC = () => {
           'Beneficiary Type',
           'Item Type',
           'Article Category',
+          'Super Category Article',
           'Requested Item Tk',
           'Comments',
         ], showWarning);
@@ -3470,9 +3474,9 @@ const MasterEntry: React.FC = () => {
       {/* Sticky Header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 pb-4 mb-4 px-1 shadow-sm">
         <div className="flex flex-col gap-3 sm:gap-4">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
-            <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 lg:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap flex-shrink-0">
                 Beneficiary Type:
               </label>
               <select
@@ -3483,7 +3487,7 @@ const MasterEntry: React.FC = () => {
                   resetForm();
                 }}
                 disabled={isFormMode}
-                className="flex-1 sm:flex-initial min-w-[140px] px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 sm:flex-initial min-w-[140px] max-w-[200px] px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed text-sm"
               >
                 <option value="district">District</option>
                 <option value="public">Public</option>
@@ -3491,30 +3495,30 @@ const MasterEntry: React.FC = () => {
               </select>
             </div>
 
-            <div className="flex items-center gap-3 sm:gap-3 flex-shrink-0">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 flex-shrink-0">
               {!isFormMode && (
                 <>
                   {/* Date Filter - moved to right side */}
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">From:</label>
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <label className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap flex-shrink-0">From:</label>
                     <input
                       type="date"
                       value={dateFilter.start || ''}
                       onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value || null })}
-                      className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm w-32"
+                      className="min-w-0 flex-1 sm:flex-initial sm:w-32 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs sm:text-sm"
                     />
-                    <label className="text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap hidden sm:inline">To:</label>
+                    <label className="text-xs sm:text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap flex-shrink-0">To:</label>
                     <input
                       type="date"
                       value={dateFilter.end || ''}
                       onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value || null })}
                       min={dateFilter.start || undefined}
-                      className="px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm w-32"
+                      className="min-w-0 flex-1 sm:flex-initial sm:w-32 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs sm:text-sm"
                     />
                     {(dateFilter.start || dateFilter.end) && (
                       <button
                         onClick={() => setDateFilter({ start: null, end: null })}
-                        className="px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+                        className="px-2 py-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white flex-shrink-0"
                         aria-label="Clear date filter"
                         title="Clear date filter"
                       >
@@ -3526,7 +3530,7 @@ const MasterEntry: React.FC = () => {
                   {canExport() && (
                     <button
                       onClick={handleExportClick}
-                      className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap flex-shrink-0 text-sm"
                     >
                       <Download className="w-4 h-4" />
                       <span className="hidden sm:inline">Export</span>
@@ -3535,7 +3539,7 @@ const MasterEntry: React.FC = () => {
                   <button
                     onClick={loadRecords}
                     disabled={loadingRecords}
-                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 text-sm"
                   >
                     <RefreshCw className={`w-4 h-4 ${loadingRecords ? 'animate-spin' : ''}`} />
                     <span className="hidden sm:inline">Refresh</span>
@@ -3543,7 +3547,7 @@ const MasterEntry: React.FC = () => {
                   {canCreate() && (
                     <button
                       onClick={handleAdd}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap w-full sm:w-auto justify-center"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap w-full sm:w-auto justify-center flex-shrink-0 text-sm"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Add</span>
@@ -3582,6 +3586,9 @@ const MasterEntry: React.FC = () => {
                   Clear
                 </button>
               )}
+              <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap ml-auto">
+                Total: {getFilteredAndSortedRecords().length}
+              </span>
             </div>
           )}
         </div>
