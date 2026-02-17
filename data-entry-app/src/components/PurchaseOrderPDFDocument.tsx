@@ -22,9 +22,10 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     flexDirection: 'row',
-    marginBottom: 15,
-    position: 'relative',
+    marginBottom: 20,
+    alignItems: 'flex-start',
   },
+
   logoSection: {
     width: '30%',
     marginRight: 20,
@@ -43,20 +44,22 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   centerHeader: {
-    flex: 1,
+    width: '60%',
     alignItems: 'center',
     paddingTop: 5,
-    position: 'relative',
   },
+
   rightHeader: {
-    width: '30%',
+    width: '20%',
     alignItems: 'flex-end',
     paddingTop: 5,
+    marginRight: -10,
   },
   leftHeader: {
-    width: '30%',
+    width: '20%',
     alignItems: 'flex-start',
     paddingTop: 5,
+    marginLeft: -10,
   },
    guruLogo: {
         width: '100%',
@@ -70,11 +73,22 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     textAlign: 'center',
   },
-  poDateContainer: {
-    position: 'absolute',
-    right: 0,
-    top: 50,
+  // poDateContainer: {
+  //   position: 'absolute',
+  //   right: 0,
+  //   top: 50,
+  // },
+  poMetaLeft: {
+    fontSize: 10,
+    marginTop: 5,
   },
+
+  poMetaRight: {
+    fontSize: 10,
+    marginTop: 5,
+    textAlign: 'right',
+  },
+
   poDate: {
     fontSize: 12,
     textAlign: 'right',
@@ -198,31 +212,37 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
           {/* Left: Guru Logo */}
           <View style={styles.leftHeader}>
             {guruLogoDataUri && (
-              <Image 
-                src={guruLogoDataUri} 
+              <Image
+                src={guruLogoDataUri}
                 style={styles.guruLogo}
               />
             )}
+
+            {fundRequest.purchase_order_number && (
+              <Text style={styles.poMetaLeft}>
+                PO NO: {fundRequest.purchase_order_number}
+              </Text>
+            )}
           </View>
+
           {/* Center: Title and Date */}
           <View style={styles.centerHeader}>
             <Text style={styles.poTitle}>PURCHASE ORDER</Text>
-            <View style={styles.poDateContainer}>
-              {fundRequest.purchase_order_number && (
-                <Text style={styles.poDate}>PO NO: {fundRequest.purchase_order_number}</Text>
-              )}
-              <Text style={styles.poDate}>DATE {currentDate}</Text>
-            </View>
           </View>
+
           {/* Right: Current Logo */}
           <View style={styles.rightHeader}>
             {logoDataUri && (
-              <Image 
-                src={logoDataUri} 
+              <Image
+                src={logoDataUri}
                 style={styles.logo}
               />
             )}
+            <Text style={styles.poMetaRight}>
+              DATE: {currentDate}
+            </Text>
           </View>
+
         </View>
 
         {/* Vendor and Ship To Section */}
