@@ -145,15 +145,15 @@ const styles = StyleSheet.create({
     lineHeight: 1.3,
   },
   colSlNo: { width: '5%' },
-  colBeneficiary: { width: '12%' },
+  colBeneficiary: { width: '10%' },
   colName: { width: '14%' },
   colInstitution: { width: '13%' },
-  colDetails: { width: '7%' },
-  colFundRequested: { width: '11%' },
-  colAadhar: { width: '12%' },
-  colChequeFavour: { width: '19%' },
+  colDetails: { width: '8%' },
+  colFundRequested: { width: '9%' },
+  colAadhar: { width: '11%' },
+  colChequeFavour: { width: '22%' },
   colChequeSl: {
-    width: '7%',
+    width: '8%',
     paddingRight: 6,
   },
 
@@ -513,7 +513,8 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 </View>
                 <View style={[styles.tableCell, styles.colChequeFavour]}>
                   <Text style={styles.tableCellText} wrap>
-                    {breakLongText(article.cheque_in_favour || '', 20)}
+                    {/*{breakLongText(article.cheque_in_favour || '', 20)}*/}
+                    {article.cheque_in_favour || ''}
                   </Text>
                 </View>
                 <View style={[styles.tableCell, styles.colChequeSl, { alignItems: 'center', justifyContent: 'center' }]}>
