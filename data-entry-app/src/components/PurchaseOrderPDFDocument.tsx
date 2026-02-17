@@ -29,11 +29,11 @@ const styles = StyleSheet.create({
     width: '30%',
     marginRight: 20,
   },
-  logo: {
-    width: 80,
-    height: 70,
-    marginBottom: 5,
-  },
+   logo: {
+      width: '100%',
+      height: 70,
+      objectFit: 'contain',
+    },
   companyInfo: {
     fontSize: 9,
     lineHeight: 1.4,
@@ -58,11 +58,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     paddingTop: 5,
   },
-  guruLogo: {
-    width: 70,
-    height: 70,
-    marginBottom: 5,
-  },
+   guruLogo: {
+        width: '100%',
+        height: 70,
+        objectFit: 'contain',
+   },
   poTitle: {
     fontSize: 20,
     fontWeight: 'bold',
