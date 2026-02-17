@@ -244,10 +244,10 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
   // Format the title based on fund request type
   const formattedDate = formatDate(fundRequest.created_at);
   const titleText = fundRequest.fund_request_type === 'Article'
-    ? `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - Article`
+    ? `Fund Request No: ${fundRequest.fund_request_number}  | Dated ${formattedDate} - Article`
     : fundRequest.aid_type
-    ? `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - ${fundRequest.aid_type}`
-    : `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate}`;
+    ? `Fund Request No: ${fundRequest.fund_request_number}  | Dated ${formattedDate} - ${fundRequest.aid_type}`
+    : `Fund Request No: ${fundRequest.fund_request_number}  | Dated ${formattedDate}`;
 
   return (
     <Document>
