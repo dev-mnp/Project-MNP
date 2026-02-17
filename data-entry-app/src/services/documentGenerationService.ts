@@ -7,6 +7,7 @@ import React from 'react';
 import FundRequestPDFDocument from '../components/FundRequestPDFDocument';
 import PurchaseOrderPDFDocument from '../components/PurchaseOrderPDFDocument';
 import { formatDate, getBeneficiaryDisplayValue } from '../utils/fundRequestUtils';
+import guruLogoPath from '../assets/guru-logo.jpg';
 
 // Flag to enable/disable XLSX generation (currently disabled)
 export const ENABLE_XLSX_GENERATION = false;
@@ -31,14 +32,15 @@ export const generateFundRequestPDF = async (
       previousCumulative = await fetchPreviousFundRequestTotal(fundRequest.id, fundRequest.created_at);
     }
 
-    // Load logo as data URI
-    const logoDataUri = await loadLogoAsDataUri();
+    // Load logos as data URIs
+    const { currentLogo, guruLogo } = await loadLogosAsDataUri();
 
     // Generate PDF using React PDF
     const pdfDoc = React.createElement(FundRequestPDFDocument, {
       fundRequest,
       previousCumulative,
-      logoDataUri,
+      logoDataUri: currentLogo,
+      guruLogoDataUri: guruLogo,
       orientation,
     }) as React.ReactElement;
 
@@ -189,7 +191,7 @@ async function populateAidFundRequestTemplate(
         row.getCell(columns.fundRequested).value = recipient.fund_requested || 0;
         row.getCell(columns.aadharNo).value = recipient.aadhar_number || '';
         row.getCell(columns.chequeInFavour).value = recipient.cheque_in_favour || '';
-        row.getCell(columns.chequeSlNo).value = recipient.cheque_sl_no || '';
+        row.getCell(columns.chequeSlNo).value = recipient.cheque_no || '';
       }
     });
 
@@ -307,7 +309,7 @@ async function createAidFundRequestSheet(
       'Fund Requested',
       'AAdhar No',
       'Cheque in Favour',
-      'Cheque Sl No',
+      'Cheque No.',
     ];
 
     worksheet.addRow(headers);
@@ -333,7 +335,7 @@ async function createAidFundRequestSheet(
         recipient.fund_requested || 0,
         recipient.aadhar_number || '',
         recipient.cheque_in_favour || '',
-        recipient.cheque_sl_no || '',
+        recipient.cheque_no || '',
       ]);
     });
 
@@ -433,7 +435,7 @@ async function createArticleFundRequestSheet(
       'PRICE INCLUDING GST',
       'VALUE',
       'CHEQUE IN FAVOUR',
-      'CHEQUE SL.NO',
+      'CHEQUE NO.',
     ];
 
     worksheet.addRow(headers);
@@ -459,7 +461,7 @@ async function createArticleFundRequestSheet(
         article.price_including_gst,
         article.value,
         article.cheque_in_favour || '',
-        article.cheque_sl_no || '',
+        article.cheque_no || '',
       ]);
     });
 
@@ -830,33 +832,65 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
 };
 
 /**
- * Load logo image and convert to data URI
+ * Load logo images and convert to data URIs
+ * Returns both current logo (for right side) and guru logo (for left side)
  */
-const loadLogoAsDataUri = async (): Promise<string | null> => {
+const loadLogosAsDataUri = async (): Promise<{ currentLogo: string | null; guruLogo: string | null }> => {
+  const loadImageAsDataUri = async (url: string): Promise<string | null> => {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            resolve(reader.result as string);
+          };
+          reader.onerror = () => {
+            resolve(null);
+          };
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch (error) {
+      console.warn(`Could not load image from ${url}:`, error);
+    }
+    return null;
+  };
+
+  // Load current logo (logo.png) - for right side
+  let currentLogo: string | null = null;
   try {
     // Try public folder first
-    let response = await fetch('/model-docs/logo.png');
-    if (!response.ok) {
+    currentLogo = await loadImageAsDataUri('/model-docs/logo.png');
+    if (!currentLogo) {
       // Fallback: try src folder (for development)
-      response = await fetch('/src/model-docs/logo.png');
-    }
-    if (response.ok) {
-      const blob = await response.blob();
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          resolve(reader.result as string);
-        };
-        reader.onerror = () => {
-          resolve(null);
-        };
-        reader.readAsDataURL(blob);
-      });
+      currentLogo = await loadImageAsDataUri('/src/model-docs/logo.png');
     }
   } catch (error) {
-    console.warn('Could not load logo:', error);
+    console.warn('Could not load current logo:', error);
   }
-  return null;
+
+  // Load guru logo (guru-logo.jpg) - for left side
+  let guruLogo: string | null = null;
+  try {
+    // Try using imported path first (works in both dev and production)
+    if (guruLogoPath) {
+      guruLogo = await loadImageAsDataUri(guruLogoPath);
+    }
+    if (!guruLogo) {
+      // Fallback: try assets folder path
+      guruLogo = await loadImageAsDataUri('/src/assets/guru-logo.jpg');
+    }
+    if (!guruLogo) {
+      // Fallback: try public folder
+      guruLogo = await loadImageAsDataUri('/guru-logo.jpg');
+    }
+  } catch (error) {
+    console.warn('Could not load guru logo:', error);
+  }
+
+  return { currentLogo, guruLogo };
 };
 
 /**
@@ -896,13 +930,14 @@ export const generatePurchaseOrderPDF = async (fundRequestId: string): Promise<B
       throw new Error('No articles found in fund request');
     }
 
-    // Load logo as data URI
-    const logoDataUri = await loadLogoAsDataUri();
+    // Load logos as data URIs
+    const { currentLogo, guruLogo } = await loadLogosAsDataUri();
 
     // Generate PDF using React PDF
     const pdfDoc = React.createElement(PurchaseOrderPDFDocument, {
       fundRequest,
-      logoDataUri,
+      logoDataUri: currentLogo,
+      guruLogoDataUri: guruLogo,
     }) as React.ReactElement;
 
     // Generate PDF blob

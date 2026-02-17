@@ -30,7 +30,7 @@ const breakLongText = (text: string, maxLength: number = 20): string => {
 const styles = StyleSheet.create({
   page: {
     padding: 30,
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: 'Helvetica',
   },
   headerSection: {
@@ -60,27 +60,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 5,
   },
+  rightHeader: {
+    width: '30%',
+    alignItems: 'flex-end',
+    paddingTop: 5,
+  },
+  leftHeader: {
+    width: '30%',
+    alignItems: 'flex-start',
+    paddingTop: 5,
+  },
+  guruLogo: {
+    width: 80,
+    height: 70,
+    marginBottom: 5,
+  },
   header: {
     marginBottom: 20,
     textAlign: 'center',
   },
   omsakthiTitle: {
-    fontSize: 20,
+    fontSize: 12,
     fontWeight: 'bold',
     marginBottom: 8,
+    textAlign: 'center',
   },
   paymentDetails: {
-    fontSize: 11,
+    fontSize: 13,
     marginBottom: 5,
+    textAlign: 'center',
   },
   celebrations: {
-    fontSize: 11,
+    fontSize: 13,
     marginBottom: 8,
+    textAlign: 'center',
   },
   fundRequestTitle: {
-    fontSize: 14,
+    fontSize: 18,
     fontWeight: 'bold',
     marginTop: 5,
+    textAlign: 'center',
   },
   table: {
     marginTop: 15,
@@ -111,7 +130,7 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   tableCellText: {
-    fontSize: 7.5,
+    fontSize: 8.5,
   },
   colSlNo: { flex: 0.04 },
   colBeneficiary: { flex: 0.12 },
@@ -121,7 +140,7 @@ const styles = StyleSheet.create({
   colFundRequested: { flex: 0.12 },
   colAadhar: { flex: 0.12 },
   colChequeFavour: { flex: 0.10 },
-  colChequeSl: { flex: 0.14 }, // Increased to give more space for CHEQUE SL.NO
+  colChequeSl: { flex: 0.14 }, // Increased to give more space for CHEQUE NO.
   totalRow: {
     fontWeight: 'bold',
     backgroundColor: '#f5f5f5',
@@ -191,12 +210,22 @@ const styles = StyleSheet.create({
     fontSize: 9,
     marginBottom: 2,
   },
+  footerAddressSection: {
+    marginTop: 20,
+    marginBottom: 10,
+    fontSize: 9,
+    lineHeight: 1.4,
+  },
+  footerAddressLine: {
+    marginBottom: 2,
+  },
 });
 
 interface FundRequestPDFDocumentProps {
   fundRequest: FundRequestWithDetails;
   previousCumulative: number;
   logoDataUri?: string | null;
+  guruLogoDataUri?: string | null;
   orientation?: 'portrait' | 'landscape';
 }
 
@@ -204,6 +233,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
   fundRequest, 
   previousCumulative,
   logoDataUri,
+  guruLogoDataUri,
   orientation = 'portrait'
 }) => {
   const currentTotal = fundRequest.total_amount || 0;
@@ -214,29 +244,24 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
   const titleText = fundRequest.fund_request_type === 'Article'
     ? `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - Article`
     : fundRequest.aid_type
-    ? `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - ${fundRequest.aid_type} Aid`
+    ? `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate} - ${fundRequest.aid_type}`
     : `Fund Request No: ${fundRequest.fund_request_number} Dated ${formattedDate}`;
 
   return (
     <Document>
       <Page size="A4" orientation={orientation} style={styles.page}>
-        {/* Header Section with Logo and Company Info */}
+        {/* Header Section with Logos and Titles */}
         <View style={styles.headerSection}>
-          <View style={styles.logoSection}>
-            {logoDataUri && (
+          {/* Left: Guru Logo */}
+          <View style={styles.leftHeader}>
+            {guruLogoDataUri && (
               <Image 
-                src={logoDataUri} 
-                style={styles.logo}
+                src={guruLogoDataUri} 
+                style={styles.guruLogo}
               />
             )}
-            <View style={styles.companyInfo}>
-              <Text style={styles.companyInfoLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>
-              <Text style={styles.companyInfoLine}>GST Road, Melmaruvathur 603319</Text>
-              <Text style={styles.companyInfoLine}>Chengalpet District, Tamilnadu</Text>
-              <Text style={styles.companyInfoLine}>GST NO: 33AACTM0073D1Z5.</Text>
-              <Text style={styles.companyInfoLine}>Website: maruvoorhelp@gmail.com</Text>
-            </View>
           </View>
+          {/* Center: Titles */}
           <View style={styles.centerHeader}>
             {/* Header - Matching Excel template format */}
             <View style={styles.header}>
@@ -245,6 +270,15 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
               <Text style={styles.celebrations}>Celebrations of His Holiness AMMA at Melmaruvathur on 03-03-2026</Text>
               <Text style={styles.fundRequestTitle}>{titleText}</Text>
             </View>
+          </View>
+          {/* Right: Current Logo */}
+          <View style={styles.rightHeader}>
+            {logoDataUri && (
+              <Image 
+                src={logoDataUri} 
+                style={styles.logo}
+              />
+            )}
           </View>
         </View>
 
@@ -278,7 +312,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Cheque in Favour</Text>
               </View>
               <View style={[styles.tableCell, styles.colChequeSl]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Cheque Sl No</Text>
+                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Cheque No.</Text>
               </View>
             </View>
 
@@ -305,7 +339,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 </View>
                 <View style={[styles.tableCell, styles.colDetails]}>
                   <Text style={styles.tableCellText} wrap>
-                    {breakLongText(recipient.details || '', 25)}
+                    {breakLongText(recipient.notes || recipient.details || '', 25)}
                   </Text>
                 </View>
                 <View style={[styles.tableCell, styles.colFundRequested]}>
@@ -326,9 +360,9 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                     {breakLongText(recipient.cheque_in_favour || '', 20)}
                   </Text>
                 </View>
-                <View style={[styles.tableCell, styles.colChequeSl]}>
-                  <Text style={styles.tableCellText} wrap>
-                    {breakLongText(recipient.cheque_sl_no || '', 12)}
+                <View style={[styles.tableCell, styles.colChequeSl, { alignItems: 'center', justifyContent: 'center' }]}>
+                  <Text style={[styles.tableCellText, { textAlign: 'center' }]} wrap>
+                    {breakLongText(recipient.cheque_no || '', 12)}
                   </Text>
                 </View>
               </View>
@@ -389,7 +423,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>CHEQUE IN FAVOUR</Text>
               </View>
               <View style={[styles.tableCell, styles.colChequeSl]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>CHEQUE SL.NO</Text>
+                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>CHEQUE NO.</Text>
               </View>
             </View>
 
@@ -440,9 +474,9 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                     {breakLongText(article.cheque_in_favour || '', 20)}
                   </Text>
                 </View>
-                <View style={[styles.tableCell, styles.colChequeSl]}>
-                  <Text style={styles.tableCellText} wrap>
-                    {breakLongText(article.cheque_sl_no || '', 12)}
+                <View style={[styles.tableCell, styles.colChequeSl, { alignItems: 'center', justifyContent: 'center' }]}>
+                  <Text style={[styles.tableCellText, { textAlign: 'center' }]} wrap>
+                    {breakLongText(article.cheque_no || '', 12)}
                   </Text>
                 </View>
               </View>
@@ -478,13 +512,22 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
           <Text style={styles.forMasText}>FOR MASM</Text>
         </View>
 
+        {/* Address Section at Bottom */}
+        <View style={styles.footerAddressSection}>
+          <Text style={styles.footerAddressLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>
+          <Text style={styles.footerAddressLine}>GST Road, Melmaruvathur 603319</Text>
+          <Text style={styles.footerAddressLine}>Chengalpet District, Tamilnadu</Text>
+          <Text style={styles.footerAddressLine}>GST NO: 33AACTM0073D1Z5.</Text>
+          <Text style={styles.footerAddressLine}>Website: maruvoorhelp@gmail.com</Text>
+        </View>
+
         {/* Footer Section */}
         <View style={styles.footerSection}>
           {/* 1 empty row spacing */}
           <View style={styles.footerSpacing}></View>
           
           {/* Approval copies text */}
-          <Text style={styles.footerText}>1. MASM PRESIDENT's APPROVAL COPY</Text>
+          <Text style={styles.footerText}>1. MASM PRESIDENT's 2026 APPROVAL COPY</Text>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <Text style={styles.footerText}>2. QUOTATION / BANK / REQUEST COPIES</Text>
             <View style={{ alignItems: 'flex-end', marginRight: '10%' }}>
@@ -499,7 +542,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
           {/* Cumulative Totals */}
           <View style={styles.cumulativeTable}>
             <View style={styles.cumulativeRow}>
-              <Text style={styles.cumulativeLabel}>PREVIOUS CUMULATIVE</Text>
+              <Text style={styles.cumulativeLabel}>PREVIOUS CUMULATIVE(Rs.)</Text>
               <Text style={styles.cumulativeValue}>
                 {previousCumulative.toLocaleString('en-IN', { 
                   minimumFractionDigits: 2, 
@@ -508,7 +551,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
               </Text>
             </View>
             <View style={styles.cumulativeRow}>
-              <Text style={styles.cumulativeLabel}>FUND REQUEST (current)</Text>
+              <Text style={styles.cumulativeLabel}>CURRENT FUND REQUEST(Rs.)</Text>
               <Text style={styles.cumulativeValue}>
                 {currentTotal.toLocaleString('en-IN', { 
                   minimumFractionDigits: 2, 
@@ -517,7 +560,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
               </Text>
             </View>
             <View style={[styles.cumulativeRow, styles.cumulativeTotal]}>
-              <Text style={styles.cumulativeLabel}>TOTAL</Text>
+              <Text style={styles.cumulativeLabel}>TOTAL(Rs.)</Text>
               <Text style={styles.cumulativeValue}>
                 {grandTotal.toLocaleString('en-IN', { 
                   minimumFractionDigits: 2, 
