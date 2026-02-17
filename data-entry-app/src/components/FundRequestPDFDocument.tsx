@@ -122,6 +122,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     paddingVertical: 6,
   },
+  tableHeaderText: {
+      fontSize: 11,
+      fontWeight: 'bold',
+      lineHeight: 1.3,
+},
+
   tableCell: {
     paddingHorizontal: 3,
     paddingVertical: 2,
@@ -132,7 +138,8 @@ const styles = StyleSheet.create({
     // flexGrow: 0,
   },
   tableCellText: {
-    fontSize: 8.5,
+    fontSize: 10,
+    lineHeight: 1.3,
   },
   colSlNo: { flex: 0.04 },
   colBeneficiary: { flex: 0.12 },
@@ -294,31 +301,31 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
             {/* Table Header */}
             <View style={[styles.tableRow, styles.tableHeader]}>
               <View style={[styles.tableCell, styles.colSlNo]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>SL No</Text>
+                <Text style={styles.tableHeaderText}>SL No</Text>
               </View>
               <View style={[styles.tableCell, styles.colBeneficiary]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Beneficiary</Text>
+                <Text style={styles.tableHeaderText}>Beneficiary</Text>
               </View>
               <View style={[styles.tableCell, styles.colName]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Name of beneficiary</Text>
+                <Text style={styles.tableHeaderText}>Name of beneficiary</Text>
               </View>
               <View style={[styles.tableCell, styles.colInstitution]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Name of Institution</Text>
+                <Text style={styles.tableHeaderText}>Name of Institution</Text>
               </View>
               <View style={[styles.tableCell, styles.colDetails]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Details</Text>
+                <Text style={styles.tableHeaderText}>Details</Text>
               </View>
               <View style={[styles.tableCell, styles.colFundRequested]}>
                 <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>Fund Requested</Text>
               </View>
               <View style={[styles.tableCell, styles.colAadhar]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>AAdhar No</Text>
+                <Text style={styles.tableHeaderText}>Aadhar No</Text>
               </View>
               <View style={[styles.tableCell, styles.colChequeFavour]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Cheque in Favour</Text>
+                <Text style={styles.tableHeaderText}>Cheque in Favour</Text>
               </View>
               <View style={[styles.tableCell, styles.colChequeSl]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Cheque No.</Text>
+                <Text style={styles.tableHeaderText}>Cheque No.</Text>
               </View>
             </View>
 
@@ -381,7 +388,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
               <View style={[styles.tableCell, styles.colName]}></View>
               <View style={[styles.tableCell, styles.colInstitution]}></View>
               <View style={[styles.tableCell, styles.colDetails]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Total:</Text>
+                <Text style={styles.tableHeaderText}>Total:</Text>
               </View>
               <View style={[styles.tableCell, styles.colFundRequested]}>
                 <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>
@@ -405,31 +412,31 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
             {/* Table Header */}
             <View style={[styles.tableRow, styles.tableHeader]}>
               <View style={[styles.tableCell, styles.colSlNo]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>SL.NO</Text>
+                <Text style={styles.tableHeaderText}>SL.NO</Text>
               </View>
               <View style={[styles.tableCell, styles.colBeneficiary]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>BENEFICIARY</Text>
+                <Text style={styles.tableHeaderText}>BENEFICIARY</Text>
               </View>
               <View style={[styles.tableCell, styles.colName]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>ARTICLE NAME</Text>
+                <Text style={styles.tableHeaderText}>ARTICLE NAME</Text>
               </View>
               <View style={[styles.tableCell, styles.colInstitution]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>GST NO.</Text>
+                <Text style={styles.tableHeaderText}>GST NO.</Text>
               </View>
               <View style={[styles.tableCell, styles.colDetails]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>QTY</Text>
+                <Text style={styles.tableHeaderText}>QTY</Text>
               </View>
               <View style={[styles.tableCell, styles.colFundRequested]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>PRICE INCLUDING GST</Text>
+                <Text style={styles.tableHeaderText}>PRICE INCLUDING GST</Text>
               </View>
               <View style={[styles.tableCell, styles.colAadhar]}>
                 <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>VALUE</Text>
               </View>
               <View style={[styles.tableCell, styles.colChequeFavour]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>CHEQUE IN FAVOUR</Text>
+                <Text style={styles.tableHeaderText}>CHEQUE IN FAVOUR</Text>
               </View>
               <View style={[styles.tableCell, styles.colChequeSl]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>CHEQUE NO.</Text>
+                <Text style={styles.tableHeaderText}>CHEQUE NO.</Text>
               </View>
             </View>
 
@@ -495,7 +502,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
               <View style={[styles.tableCell, styles.colName]}></View>
               <View style={[styles.tableCell, styles.colInstitution]}></View>
               <View style={[styles.tableCell, styles.colDetails]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold' }]}>Total:</Text>
+                <Text style={styles.tableHeaderText}>Total:</Text>
               </View>
               <View style={[styles.tableCell, styles.colFundRequested]}></View>
               <View style={[styles.tableCell, styles.colAadhar]}>
