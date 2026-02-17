@@ -128,8 +128,8 @@ const styles = StyleSheet.create({
     minHeight: 15,
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
-    flexShrink: 1,
-    flexGrow: 0,
+    // flexShrink: 1,
+    // flexGrow: 0,
   },
   tableCellText: {
     fontSize: 8.5,
@@ -141,8 +141,11 @@ const styles = StyleSheet.create({
   colDetails: { flex: 0.06 }, // Reduced further for QTY (max 3 digits)
   colFundRequested: { flex: 0.12 },
   colAadhar: { flex: 0.12 },
-  colChequeFavour: { flex: 0.10 },
-  colChequeSl: { flex: 0.14 }, // Increased to give more space for CHEQUE NO.
+  colChequeFavour: { width: '16%' },
+  colChequeSl: {
+    width: '10%', // Increased to give more space for CHEQUE NO.
+    paddingRight: 6,
+  },
   totalRow: {
     fontWeight: 'bold',
     backgroundColor: '#f5f5f5',
@@ -360,11 +363,11 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 </View>
                 <View style={[styles.tableCell, styles.colChequeFavour]}>
                   <Text style={styles.tableCellText} wrap>
-                    {breakLongText(recipient.cheque_in_favour || '', 20)}
+                    {recipient.cheque_in_favour || ''}
                   </Text>
                 </View>
-                <View style={[styles.tableCell, styles.colChequeSl, { alignItems: 'center', justifyContent: 'center' }]}>
-                  <Text style={[styles.tableCellText, { textAlign: 'center' }]} wrap>
+                <View style={[styles.tableCell, styles.colChequeSl, { alignItems: 'flex-end' }]}>
+                  <Text style={[styles.tableCellText, { textAlign: 'right' }]} wrap>
                     {breakLongText(recipient.cheque_no || '', 12)}
                   </Text>
                 </View>
