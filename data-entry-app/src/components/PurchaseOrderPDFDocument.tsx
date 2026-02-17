@@ -80,14 +80,17 @@ const styles = StyleSheet.create({
   // },
   poMetaLeft: {
     fontSize: 10,
-    marginTop: 5,
+    marginTop: 25,      // pushes it downward
+    marginLeft: 15,     // moves it slightly right
   },
 
   poMetaRight: {
     fontSize: 10,
-    marginTop: 5,
+    marginTop: 25,      // pushes it downward
+    marginRight: 15,    // moves it slightly left
     textAlign: 'right',
   },
+
 
   poDate: {
     fontSize: 12,
@@ -219,8 +222,8 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
             )}
 
             {fundRequest.purchase_order_number && (
-              <Text style={styles.poMetaLeft}>
-                PO NO: {fundRequest.purchase_order_number}
+              <Text style={styles.poMetaLeft} wrap={false}>
+                {`PO No: ${fundRequest.purchase_order_number}`}
               </Text>
             )}
           </View>
