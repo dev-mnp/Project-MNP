@@ -515,14 +515,14 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
           <Text style={styles.forMasText}>FOR MASM</Text>
         </View>
 
-        {/* Address Section at Bottom */}
-        <View style={styles.footerAddressSection}>
-          <Text style={styles.footerAddressLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>
-          <Text style={styles.footerAddressLine}>GST Road, Melmaruvathur 603319</Text>
-          <Text style={styles.footerAddressLine}>Chengalpet District, Tamilnadu</Text>
-          <Text style={styles.footerAddressLine}>GST NO: 33AACTM0073D1Z5.</Text>
-          <Text style={styles.footerAddressLine}>Website: maruvoorhelp@gmail.com</Text>
-        </View>
+        {/*/!* Address Section at Bottom *!/*/}
+        {/*<View style={styles.footerAddressSection}>*/}
+        {/*  <Text style={styles.footerAddressLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>*/}
+        {/*  <Text style={styles.footerAddressLine}>GST Road, Melmaruvathur 603319</Text>*/}
+        {/*  <Text style={styles.footerAddressLine}>Chengalpet District, Tamilnadu</Text>*/}
+        {/*  <Text style={styles.footerAddressLine}>GST NO: 33AACTM0073D1Z5.</Text>*/}
+        {/*  <Text style={styles.footerAddressLine}>Website: maruvoorhelp@gmail.com</Text>*/}
+        {/*</View>*/}
 
         {/* Footer Section */}
         <View style={styles.footerSection}>
