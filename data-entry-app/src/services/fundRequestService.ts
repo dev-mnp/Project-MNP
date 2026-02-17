@@ -36,8 +36,9 @@ export interface FundRequestRecipient {
   aadhar_number?: string;
   address?: string;
   cheque_in_favour?: string;
-  cheque_sl_no?: string;
+  cheque_no?: string;
   notes?: string;
+  district_name?: string;
   created_at?: string;
 }
 
@@ -55,7 +56,7 @@ export interface FundRequestArticle {
   value: number;
   cumulative: number;
   cheque_in_favour?: string;
-  cheque_sl_no?: string;
+  cheque_no?: string;
   supplier_article_name?: string;
   description?: string;
   created_at?: string;

@@ -17,7 +17,7 @@ const formatPODate = (): string => {
 const styles = StyleSheet.create({
   page: {
     padding: 30,
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: 'Helvetica',
   },
   headerSection: {
@@ -49,12 +49,22 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   rightHeader: {
-    width: '20%',
+    width: '30%',
     alignItems: 'flex-end',
     paddingTop: 5,
   },
+  leftHeader: {
+    width: '30%',
+    alignItems: 'flex-start',
+    paddingTop: 5,
+  },
+  guruLogo: {
+    width: 80,
+    height: 70,
+    marginBottom: 5,
+  },
   poTitle: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#008000',
     marginBottom: 5,
@@ -66,7 +76,7 @@ const styles = StyleSheet.create({
     top: 50,
   },
   poDate: {
-    fontSize: 10,
+    fontSize: 12,
     textAlign: 'right',
   },
   vendorShipSection: {
@@ -169,11 +179,13 @@ const styles = StyleSheet.create({
 interface PurchaseOrderPDFDocumentProps {
   fundRequest: FundRequestWithDetails;
   logoDataUri?: string | null;
+  guruLogoDataUri?: string | null;
 }
 
 const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({ 
   fundRequest,
-  logoDataUri 
+  logoDataUri,
+  guruLogoDataUri
 }) => {
   const currentDate = formatPODate();
   const totalAmount = fundRequest.articles?.reduce((sum, article) => sum + (article.value || 0), 0) || 0;
@@ -181,23 +193,18 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        {/* Header Section with Logo and Company Info */}
+        {/* Header Section with Logos and Company Info */}
         <View style={styles.headerSection}>
-          <View style={styles.logoSection}>
-            {logoDataUri && (
+          {/* Left: Guru Logo */}
+          <View style={styles.leftHeader}>
+            {guruLogoDataUri && (
               <Image 
-                src={logoDataUri} 
-                style={styles.logo}
+                src={guruLogoDataUri} 
+                style={styles.guruLogo}
               />
             )}
-            <View style={styles.companyInfo}>
-              <Text style={styles.companyInfoLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>
-              <Text style={styles.companyInfoLine}>GST Road, Melmaruvathur 603319</Text>
-              <Text style={styles.companyInfoLine}>Chengalpet District, Tamilnadu</Text>
-              <Text style={styles.companyInfoLine}>GST NO: 33AACTM0073D1Z5.</Text>
-              <Text style={styles.companyInfoLine}>Website: maruvoorhelp@gmail.com</Text>
-            </View>
           </View>
+          {/* Center: Title and Date */}
           <View style={styles.centerHeader}>
             <Text style={styles.poTitle}>PURCHASE ORDER</Text>
             <View style={styles.poDateContainer}>
@@ -207,6 +214,15 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
               <Text style={styles.poDate}>DATE {currentDate}</Text>
             </View>
           </View>
+          {/* Right: Current Logo */}
+          <View style={styles.rightHeader}>
+            {logoDataUri && (
+              <Image 
+                src={logoDataUri} 
+                style={styles.logo}
+              />
+            )}
+          </View>
         </View>
 
         {/* Vendor and Ship To Section */}
@@ -215,13 +231,13 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
             <Text style={styles.sectionHeader}>VENDOR</Text>
             <View style={styles.sectionContent}>
               <Text style={styles.sectionLine}>{fundRequest.supplier_name || ''}</Text>
-              <Text style={styles.sectionLine}>{fundRequest.gst_number || ''}</Text>
               <Text style={styles.sectionLine}>{fundRequest.supplier_address || ''}</Text>
               <Text style={styles.sectionLine}>
                 {[fundRequest.supplier_city, fundRequest.supplier_state, fundRequest.supplier_pincode]
                   .filter(Boolean)
                   .join(', ')}
               </Text>
+              <Text style={styles.sectionLine}>GST {fundRequest.gst_number || ''}</Text>
             </View>
           </View>
           <View style={styles.shipToSection}>
@@ -312,7 +328,11 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
         {/* Comments Section */}
         <View style={styles.commentsSection}>
           <Text style={styles.commentsHeader}>Comments or Special Instructions</Text>
-          <View style={styles.commentsSpace}></View>
+          <View style={[styles.commentsSpace, { padding: 8 }]}>
+            <Text style={styles.tableCellText}>
+              {fundRequest.notes || ''}
+            </Text>
+          </View>
         </View>
 
         {/* Footer */}

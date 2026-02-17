@@ -14,6 +14,7 @@ import { useRBAC } from '../contexts/RBACContext';
 import { useAuth } from '../contexts/AuthContext';
 import { CURRENCY_SYMBOL } from '../constants/currency';
 import { ConfirmDialog } from './ConfirmDialog';
+import { getBeneficiaryDisplayValueForExport } from '../utils/fundRequestUtils';
 import ExcelJS from 'exceljs';
 
 const FundRequest: React.FC = () => {
@@ -34,7 +35,6 @@ const FundRequest: React.FC = () => {
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'Aid' | 'Article'>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   
@@ -60,9 +60,6 @@ const FundRequest: React.FC = () => {
   const [downloading, setDownloading] = useState<{ id: string; type: 'fr' | 'po' } | null>(null);
 
   // Export state
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [exportAid, setExportAid] = useState(false);
-  const [exportArticle, setExportArticle] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   // Only load data when authenticated and not restoring
@@ -75,14 +72,14 @@ const FundRequest: React.FC = () => {
 
   useEffect(() => {
     applyFilters();
-  }, [fundRequests, searchQuery, typeFilter, statusFilter, sortColumn, sortDirection]);
+  }, [fundRequests, searchQuery, typeFilter, sortColumn, sortDirection]);
 
-  // Reload data when date filters change
+  // Reload data when date filters or type filter change
   useEffect(() => {
     if (isAuthenticated && !isRestoringSession) {
       loadFundRequests();
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, typeFilter]);
 
   const loadFundRequests = async () => {
     try {
@@ -91,9 +88,6 @@ const FundRequest: React.FC = () => {
       
       if (typeFilter !== 'all') {
         filters.fund_request_type = typeFilter;
-      }
-      if (statusFilter !== 'all') {
-        filters.status = statusFilter;
       }
       if (startDate) {
         filters.start_date = startDate;
@@ -326,18 +320,16 @@ const FundRequest: React.FC = () => {
   };
 
   const handleExport = async () => {
-    if (!exportAid && !exportArticle) {
-      showError('Please select at least one type to export.');
-      return;
-    }
-
     setExporting(true);
     try {
-      // Filter fund requests based on selected types
-      const frsToExport = filteredFundRequests.filter(fr => {
-        if (exportAid && fr.fund_request_type === 'Aid') return true;
-        if (exportArticle && fr.fund_request_type === 'Article') return true;
-        return false;
+      // Filter fund requests - export all by default
+      const frsToExport = [...filteredFundRequests];
+      
+      // Sort by fund request number in ascending order
+      frsToExport.sort((a, b) => {
+        const aNum = a.fund_request_number || '';
+        const bNum = b.fund_request_number || '';
+        return aNum.localeCompare(bNum, undefined, { numeric: true, sensitivity: 'base' });
       });
 
       if (frsToExport.length === 0) {
@@ -351,310 +343,329 @@ const FundRequest: React.FC = () => {
       const worksheet = workbook.addWorksheet('Fund Requests');
       let currentRow = 1;
 
-      // Header rows with formatting
+      // Header rows with formatting (updated to 13 columns - added Details)
       const headerRow1 = worksheet.getRow(currentRow);
       headerRow1.getCell(1).value = 'OMSAKTHI';
-      headerRow1.getCell(1).font = { size: 10, bold: true }; // Smaller font for OMSAKTHI
+      headerRow1.getCell(1).font = { size: 10, bold: true };
       headerRow1.getCell(1).alignment = { horizontal: 'center' };
-      worksheet.mergeCells(currentRow, 1, currentRow, 9);
+      worksheet.mergeCells(currentRow, 1, currentRow, 13);
       currentRow++;
 
       const headerRow2 = worksheet.getRow(currentRow);
       headerRow2.getCell(1).value = 'MASM Social Welfare Programme Payment Request Details for Distribution on the eve of 86th Birthday Celebrations of';
       headerRow2.getCell(1).font = { size: 12, bold: true };
       headerRow2.getCell(1).alignment = { horizontal: 'center', wrapText: true };
-      worksheet.mergeCells(currentRow, 1, currentRow, 9);
+      worksheet.mergeCells(currentRow, 1, currentRow, 13);
       currentRow++;
 
       const headerRow3 = worksheet.getRow(currentRow);
       headerRow3.getCell(1).value = 'His Holiness AMMA at Melmaruvathur on 02.03.2021';
       headerRow3.getCell(1).font = { size: 12, bold: true };
       headerRow3.getCell(1).alignment = { horizontal: 'center' };
-      worksheet.mergeCells(currentRow, 1, currentRow, 9);
-      currentRow += 2; // Empty row
+      worksheet.mergeCells(currentRow, 1, currentRow, 13);
+      currentRow += 2;
 
       // Title
       const titleRow = worksheet.getRow(currentRow);
       titleRow.getCell(1).value = 'Payment Request - MASTER LIST';
       titleRow.getCell(1).font = { size: 14, bold: true };
       titleRow.getCell(1).alignment = { horizontal: 'center' };
-      worksheet.mergeCells(currentRow, 1, currentRow, 9);
-      currentRow += 2; // Empty row
+      worksheet.mergeCells(currentRow, 1, currentRow, 13);
+      currentRow += 2;
 
-      // Collect all data and consolidated list
-      const aidExportData: any[] = [];
-      const articleExportData: any[] = [];
-      const consolidatedData: { 'Fund Request Number': string; 'Amount': number }[] = [];
-      let grandTotal = 0;
+      // Collect all data into a single array
+      interface ExportRow {
+        fundRequestNumber: string;
+        requestType: string;
+        beneficiary: string;
+        nameOfBeneficiaryArticle: string;
+        nameOfInstitutionArticle: string;
+        gstAadharNumber: string;
+        details: string;
+        units: number;
+        priceInclGst: number;
+        value: number;
+        fundRequestValue: number;
+        chequeInFavour: string;
+        chequeNo: string;
+        frId: string; // Track which FR this row belongs to for merging
+      }
 
-      // Process Aid fund requests
-      if (exportAid) {
-        const aidFRs = frsToExport.filter(fr => fr.fund_request_type === 'Aid');
-        for (const fr of aidFRs) {
-          const details = await fetchFundRequestById(fr.id!);
+      const allExportData: ExportRow[] = [];
+      const frValueMap = new Map<string, number>(); // Map FR ID to total value
+
+      // Process all fund requests in sorted order (by FR number)
+      for (const fr of frsToExport) {
+        const details = await fetchFundRequestById(fr.id!);
+        
+        if (fr.fund_request_type === 'Aid') {
           let frTotal = 0;
           if (details && details.recipients) {
             for (const recipient of details.recipients) {
               const amount = recipient.fund_requested || 0;
               frTotal += amount;
-              aidExportData.push({
-                'Fund Request Number': fr.fund_request_number,
-                'Beneficiary Type': recipient.beneficiary_type || '',
-                'Aid Type': fr.aid_type || '',
-                'Recipient Name': recipient.recipient_name || '',
-                'Aadhaar Number': recipient.aadhar_number || '',
-                'Total Amount': amount,
-                'Cheque/RTGS in Favour': recipient.cheque_in_favour || '',
-                'Cheque SL No': recipient.cheque_sl_no || '',
+              
+              const beneficiary = getBeneficiaryDisplayValueForExport(recipient, 'Aid');
+              const nameOfBeneficiary = recipient.recipient_name || recipient.name_of_beneficiary || '';
+              const nameOfInstitution = recipient.name_of_institution || '';
+              const gstAadhar = recipient.aadhar_number || '';
+              const detailsNotes = recipient.notes || '';
+              const units = 1;
+              const priceInclGst = amount;
+              const value = units * priceInclGst;
+
+              allExportData.push({
+                fundRequestNumber: fr.fund_request_number,
+                requestType: fr.aid_type || 'Aid',
+                beneficiary,
+                nameOfBeneficiaryArticle: nameOfBeneficiary,
+                nameOfInstitutionArticle: nameOfInstitution,
+                gstAadharNumber: gstAadhar,
+                details: detailsNotes,
+                units,
+                priceInclGst,
+                value,
+                fundRequestValue: 0, // Will be set after calculating FR total
+                chequeInFavour: recipient.cheque_in_favour || '',
+                chequeNo: recipient.cheque_no || '',
+                frId: fr.id!,
               });
             }
           }
-          consolidatedData.push({
-            'Fund Request Number': fr.fund_request_number,
-            'Amount': frTotal,
-          });
-          grandTotal += frTotal;
-        }
-      }
-
-      // Process Article fund requests
-      if (exportArticle) {
-        const articleFRs = frsToExport.filter(fr => fr.fund_request_type === 'Article');
-        for (const fr of articleFRs) {
-          const details = await fetchFundRequestById(fr.id!);
+          frValueMap.set(fr.id!, frTotal);
+        } else if (fr.fund_request_type === 'Article') {
           let frTotal = 0;
-          if (details) {
-            let beneficiaryType = 'District';
-            if (details.recipients && details.recipients.length > 0) {
-              beneficiaryType = details.recipients[0].beneficiary_type || 'District';
-            }
+          if (details && details.articles) {
+            // Get first recipient for beneficiary display (Article always shows "All Districts & Public")
+            const firstRecipient = details.recipients && details.recipients.length > 0 ? details.recipients[0] : null;
+            const beneficiary = getBeneficiaryDisplayValueForExport(firstRecipient, 'Article');
 
-            if (details.articles) {
-              for (const article of details.articles) {
-                const articleValue = article.value || 0;
-                frTotal += articleValue;
-                articleExportData.push({
-                  'Fund Request Number': fr.fund_request_number,
-                  'Beneficiary Type': beneficiaryType,
-                  'Article Name': article.article_name || '',
-                  'GST Number': article.gst_no || fr.gst_number || '',
-                  'Quantity': article.quantity || 0,
-                  'Unit Price': article.unit_price || 0,
-                  'Total': articleValue,
-                  'Cheque/RTGS in Favour': article.cheque_in_favour || '',
-                  'Cheque SL No': article.cheque_sl_no || '',
-                });
-              }
+            for (const article of details.articles) {
+              const articleValue = article.value || 0;
+              frTotal += articleValue;
+              
+              const nameOfBeneficiaryArticle = article.supplier_article_name || article.article_name || '';
+              const nameOfInstitutionArticle = article.article_name || '';
+              const gstAadhar = article.gst_no || fr.gst_number || '';
+              const detailsNotes = ''; // Article doesn't have details per article, use empty
+              const units = article.quantity || 0;
+              const priceInclGst = article.price_including_gst || 0;
+              const value = units * priceInclGst;
+
+              allExportData.push({
+                fundRequestNumber: fr.fund_request_number,
+                requestType: 'Article',
+                beneficiary,
+                nameOfBeneficiaryArticle,
+                nameOfInstitutionArticle,
+                gstAadharNumber: gstAadhar,
+                details: detailsNotes,
+                units,
+                priceInclGst,
+                value,
+                fundRequestValue: 0, // Will be set after calculating FR total
+                chequeInFavour: article.cheque_in_favour || '',
+                chequeNo: article.cheque_no || '',
+                frId: fr.id!,
+              });
             }
           }
-          consolidatedData.push({
-            'Fund Request Number': fr.fund_request_number,
-            'Amount': frTotal,
-          });
-          grandTotal += frTotal;
+          frValueMap.set(fr.id!, frTotal);
         }
       }
 
-      // Add Aid data section
-      if (aidExportData.length > 0) {
-        const aidHeaders = ['Fund Request Number', 'Beneficiary Type', 'Aid Type', 'Recipient Name', 'Aadhaar Number', 'Total Amount', 'Cheque/RTGS in Favour', 'Cheque SL No'];
-        
-        // Section header
-        const sectionRow = worksheet.getRow(currentRow);
-        sectionRow.getCell(1).value = 'AID FUND REQUESTS';
-        sectionRow.getCell(1).font = { size: 12, bold: true };
-        worksheet.mergeCells(currentRow, 1, currentRow, 9);
-        currentRow++;
+      // Set fund request values for all rows
+      allExportData.forEach(row => {
+        row.fundRequestValue = frValueMap.get(row.frId) || 0;
+      });
 
-        // Add headers
-        const headerRow = worksheet.getRow(currentRow);
-        aidHeaders.forEach((header, idx) => {
-          const cell = headerRow.getCell(idx + 1);
-          cell.value = header;
-          cell.font = { bold: true, size: 11 };
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' },
-          };
-          cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
-          };
-        });
-        currentRow++;
+      // Define headers
+      const headers = [
+        'FUND REQ NO.',
+        'Request Type',
+        'Beneficiary',
+        'Name of Beneficiary/Article',
+        'Name of Institution/Article',
+        'GST/Aadhar Number',
+        'Details',
+        'Units',
+        'Price incl GST',
+        'Value',
+        'Fund Request Value',
+        'CHEQUE (OR) RTGS IN FAVOUR',
+        'CHEQUE NO.',
+      ];
 
-        // Add data rows
-        aidExportData.forEach(row => {
-          const dataRow = worksheet.getRow(currentRow);
-          aidHeaders.forEach((header, idx) => {
-            const cell = dataRow.getCell(idx + 1);
-            cell.value = row[header] ?? '';
-            cell.alignment = { horizontal: idx === 5 ? 'right' : 'left', vertical: 'middle' };
-            cell.border = {
-              top: { style: 'thin' },
-              left: { style: 'thin' },
-              bottom: { style: 'thin' },
-              right: { style: 'thin' },
-            };
-          });
-          currentRow++;
-        });
-        currentRow++; // Empty row
-      }
-
-      // Add Article data section
-      if (articleExportData.length > 0) {
-        const articleHeaders = ['Fund Request Number', 'Beneficiary Type', 'Article Name', 'GST Number', 'Quantity', 'Unit Price', 'Total', 'Cheque/RTGS in Favour', 'Cheque SL No'];
-        
-        // Section header
-        const sectionRow = worksheet.getRow(currentRow);
-        sectionRow.getCell(1).value = 'ARTICLE FUND REQUESTS';
-        sectionRow.getCell(1).font = { size: 12, bold: true };
-        worksheet.mergeCells(currentRow, 1, currentRow, 9);
-        currentRow++;
-
-        // Add headers
-        const headerRow = worksheet.getRow(currentRow);
-        articleHeaders.forEach((header, idx) => {
-          const cell = headerRow.getCell(idx + 1);
-          cell.value = header;
-          cell.font = { bold: true, size: 11 };
-          cell.fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' },
-          };
-          cell.alignment = { horizontal: 'center', vertical: 'middle' };
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' },
-          };
-        });
-        currentRow++;
-
-        // Add data rows
-        articleExportData.forEach(row => {
-          const dataRow = worksheet.getRow(currentRow);
-          articleHeaders.forEach((header, idx) => {
-            const cell = dataRow.getCell(idx + 1);
-            cell.value = row[header] ?? '';
-            cell.alignment = { horizontal: (idx === 4 || idx === 5 || idx === 6) ? 'right' : 'left', vertical: 'middle' };
-            cell.border = {
-              top: { style: 'thin' },
-              left: { style: 'thin' },
-              bottom: { style: 'thin' },
-              right: { style: 'thin' },
-            };
-          });
-          currentRow++;
-        });
-        currentRow++; // Empty row
-      }
-
-      // Add Consolidated List
-      const consolidatedHeaderRow = worksheet.getRow(currentRow);
-      consolidatedHeaderRow.getCell(1).value = 'CONSOLIDATED LIST';
-      consolidatedHeaderRow.getCell(1).font = { size: 12, bold: true };
-      worksheet.mergeCells(currentRow, 1, currentRow, 2);
+      // Add headers
+      const headerRow = worksheet.getRow(currentRow);
+      headers.forEach((header, idx) => {
+        const cell = headerRow.getCell(idx + 1);
+        cell.value = header;
+        cell.font = { bold: true, size: 11 };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE0E0E0' },
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      });
       currentRow++;
 
-      // Consolidated headers
-      const consHeaderRow = worksheet.getRow(currentRow);
-      consHeaderRow.getCell(1).value = 'Fund Request Number';
-      consHeaderRow.getCell(2).value = 'Amount';
-      consHeaderRow.getCell(1).font = { bold: true, size: 11 };
-      consHeaderRow.getCell(2).font = { bold: true, size: 11 };
-      consHeaderRow.getCell(1).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' },
-      };
-      consHeaderRow.getCell(2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' },
-      };
-      consHeaderRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-      consHeaderRow.getCell(2).alignment = { horizontal: 'center', vertical: 'middle' };
-      consHeaderRow.getCell(1).border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' },
-      };
-      consHeaderRow.getCell(2).border = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' },
-      };
-      currentRow++;
+      // Track FR groups for merging
+      const frGroups = new Map<string, { startRow: number; endRow: number }>();
+      let currentFrId = '';
+      let groupStartRow = currentRow;
 
-      // Consolidated data rows
-      consolidatedData.forEach(row => {
+      // Add data rows
+      allExportData.forEach((row) => {
         const dataRow = worksheet.getRow(currentRow);
-        dataRow.getCell(1).value = row['Fund Request Number'];
-        dataRow.getCell(2).value = row['Amount'];
-        dataRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
-        dataRow.getCell(2).alignment = { horizontal: 'right', vertical: 'middle' };
-        dataRow.getCell(1).border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' },
-        };
-        dataRow.getCell(2).border = {
-          top: { style: 'thin' },
-          left: { style: 'thin' },
-          bottom: { style: 'thin' },
-          right: { style: 'thin' },
-        };
+        
+        // Track FR groups
+        if (row.frId !== currentFrId) {
+          if (currentFrId && groupStartRow < currentRow) {
+            frGroups.set(currentFrId, { startRow: groupStartRow, endRow: currentRow - 1 });
+          }
+          currentFrId = row.frId;
+          groupStartRow = currentRow;
+        }
+
+        // Set cell values
+        dataRow.getCell(1).value = row.fundRequestNumber;
+        dataRow.getCell(2).value = row.requestType;
+        dataRow.getCell(3).value = row.beneficiary;
+        dataRow.getCell(4).value = row.nameOfBeneficiaryArticle;
+        dataRow.getCell(5).value = row.nameOfInstitutionArticle;
+        dataRow.getCell(6).value = row.gstAadharNumber;
+        dataRow.getCell(7).value = row.details;
+        dataRow.getCell(8).value = row.units;
+        dataRow.getCell(9).value = row.priceInclGst;
+        dataRow.getCell(10).value = row.value;
+        dataRow.getCell(11).value = row.fundRequestValue;
+        dataRow.getCell(12).value = row.chequeInFavour;
+        dataRow.getCell(13).value = row.chequeNo;
+
+        // Apply formatting
+        headers.forEach((_, colIdx) => {
+          const cell = dataRow.getCell(colIdx + 1);
+          // Right align numeric columns (8, 9, 10, 11) - shifted by 1 due to Details column
+          cell.alignment = { 
+            horizontal: (colIdx === 7 || colIdx === 8 || colIdx === 9 || colIdx === 10) ? 'right' : 'left', 
+            vertical: 'middle' 
+          };
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' },
+          };
+        });
+
         currentRow++;
       });
 
-      // Total row
+      // Close last group
+      if (currentFrId && groupStartRow < currentRow) {
+        frGroups.set(currentFrId, { startRow: groupStartRow, endRow: currentRow - 1 });
+      }
+
+      // Merge Fund Request Value cells vertically for each FR group
+      frGroups.forEach((group) => {
+        if (group.endRow > group.startRow) {
+          worksheet.mergeCells(group.startRow, 11, group.endRow, 11);
+          // Center align the merged cell
+          const mergedCell = worksheet.getCell(group.startRow, 11);
+          mergedCell.alignment = { horizontal: 'right', vertical: 'middle' };
+        }
+      });
+
+      // Calculate grand total from all fund request values
+      const grandTotal = Array.from(frValueMap.values()).reduce((sum, value) => sum + value, 0);
+
+      // Add total row
       const totalRow = worksheet.getRow(currentRow);
       totalRow.getCell(1).value = 'TOTAL';
-      totalRow.getCell(2).value = grandTotal;
       totalRow.getCell(1).font = { bold: true, size: 11 };
-      totalRow.getCell(2).font = { bold: true, size: 11 };
       totalRow.getCell(1).fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: 'FFD3D3D3' },
       };
-      totalRow.getCell(2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFD3D3D3' },
-      };
       totalRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
-      totalRow.getCell(2).alignment = { horizontal: 'right', vertical: 'middle' };
       totalRow.getCell(1).border = {
         top: { style: 'thin' },
         left: { style: 'thin' },
         bottom: { style: 'thin' },
         right: { style: 'thin' },
       };
-      totalRow.getCell(2).border = {
+      
+      // Merge cells 2-10 (empty)
+      for (let col = 2; col <= 10; col++) {
+        totalRow.getCell(col).value = '';
+        totalRow.getCell(col).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFD3D3D3' },
+        };
+        totalRow.getCell(col).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      }
+      
+      // Fund Request Value column (11) - show grand total
+      totalRow.getCell(11).value = grandTotal;
+      totalRow.getCell(11).font = { bold: true, size: 11 };
+      totalRow.getCell(11).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD3D3D3' },
+      };
+      totalRow.getCell(11).alignment = { horizontal: 'right', vertical: 'middle' };
+      totalRow.getCell(11).border = {
         top: { style: 'thin' },
         left: { style: 'thin' },
         bottom: { style: 'thin' },
         right: { style: 'thin' },
       };
+      
+      // Empty cells for last two columns
+      for (let col = 12; col <= 13; col++) {
+        totalRow.getCell(col).value = '';
+        totalRow.getCell(col).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFD3D3D3' },
+        };
+        totalRow.getCell(col).border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' },
+        };
+      }
 
       // Set column widths
-      worksheet.columns.forEach((column, idx) => {
-        if (column) {
-          column.width = idx === 0 ? 20 : idx === 1 ? 18 : idx === 2 ? 20 : idx === 3 ? 25 : idx === 4 ? 15 : idx === 5 ? 15 : idx === 6 ? 15 : idx === 7 ? 20 : 15;
-        }
-      });
+      worksheet.getColumn(1).width = 18; // FUND REQ NO.
+      worksheet.getColumn(2).width = 18; // Request Type
+      worksheet.getColumn(3).width = 20; // Beneficiary
+      worksheet.getColumn(4).width = 25; // Name of Beneficiary/Article
+      worksheet.getColumn(5).width = 25; // Name of Institution/Article
+      worksheet.getColumn(6).width = 18; // GST/Aadhar Number
+      worksheet.getColumn(7).width = 30; // Details
+      worksheet.getColumn(8).width = 12; // Units
+      worksheet.getColumn(9).width = 15; // Price incl GST
+      worksheet.getColumn(10).width = 15; // Value
+      worksheet.getColumn(11).width = 18; // Fund Request Value
+      worksheet.getColumn(12).width = 25; // CHEQUE (OR) RTGS IN FAVOUR
+      worksheet.getColumn(13).width = 15; // CHEQUE NO.
 
       // Generate buffer and download
       const buffer = await workbook.xlsx.writeBuffer();
@@ -671,9 +682,6 @@ const FundRequest: React.FC = () => {
       URL.revokeObjectURL(url);
 
       showSuccess('Export completed successfully.');
-      setShowExportModal(false);
-      setExportAid(false);
-      setExportArticle(false);
     } catch (error) {
       console.error('Failed to export fund requests:', error);
       showError('Failed to export fund requests. Please try again.');
@@ -716,11 +724,16 @@ const FundRequest: React.FC = () => {
           </button>
           {canExport() && (
             <button
-              onClick={() => setShowExportModal(true)}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              onClick={handleExport}
+              disabled={exporting}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export</span>
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span className="hidden sm:inline">{exporting ? 'Exporting...' : 'Export'}</span>
             </button>
           )}
           {canCreate() && (
@@ -759,19 +772,6 @@ const FundRequest: React.FC = () => {
             <option value="Article">Article</option>
           </select>
           
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          >
-            <option value="all">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="submitted">Submitted</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="completed">Completed</option>
-          </select>
-          
           <input
             type="date"
             value={startDate}
@@ -787,6 +787,22 @@ const FundRequest: React.FC = () => {
             placeholder="End Date"
             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           />
+          
+          {(searchQuery || typeFilter !== 'all' || startDate || endDate) && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setTypeFilter('all');
+                setStartDate('');
+                setEndDate('');
+              }}
+              className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors flex items-center gap-1.5"
+              title="Clear all filters"
+            >
+              <X className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -879,7 +895,9 @@ const FundRequest: React.FC = () => {
                           </div>
                         </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {fundRequest.fund_request_type}
+                      {fundRequest.fund_request_type === 'Article' 
+                        ? 'Article' 
+                        : (fundRequest.aid_type || 'Aid')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                       {CURRENCY_SYMBOL} {fundRequest.total_amount.toLocaleString()}
@@ -990,7 +1008,7 @@ const FundRequest: React.FC = () => {
                                     <div className="flex justify-between items-center mb-3">
                                       <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Articles</h4>
                                       <span className="text-sm text-gray-600 dark:text-gray-400">
-                                        Total Articles: {details.articles.length}
+                                        Total Articles: {details.articles.length}, Total Quantity: {details.articles?.reduce((sum, a) => sum + (a.quantity || 0), 0) || 0}
                                       </span>
                                     </div>
                                     <div className="overflow-x-auto">
@@ -1028,15 +1046,6 @@ const FundRequest: React.FC = () => {
                               </>
                             ) : (
                               <>
-                                {/* Aid Type */}
-                                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Aid Information</h4>
-                                  <div className="text-sm">
-                                    <span className="text-gray-600 dark:text-gray-400">Aid Type:</span>
-                                    <span className="ml-2 text-gray-900 dark:text-white">{details.aid_type || '-'}</span>
-                                  </div>
-                                </div>
-                                
                                 {/* Recipients Breakdown */}
                                 {details.recipients && details.recipients.length > 0 && (
                                   <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
@@ -1136,89 +1145,6 @@ const FundRequest: React.FC = () => {
       )}
 
       {/* Confirm Dialog */}
-      {/* Export Modal */}
-      {showExportModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-            <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Export Fund Requests
-              </h2>
-              <button
-                onClick={() => {
-                  setShowExportModal(false);
-                  setExportAid(false);
-                  setExportArticle(false);
-                }}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Select the types of fund requests to export. Separate CSV files will be generated for each type.
-              </p>
-
-              <div className="space-y-3">
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportAid}
-                    onChange={(e) => setExportAid(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <span className="text-gray-900 dark:text-white">Export Aid Fund Requests</span>
-                </label>
-
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={exportArticle}
-                    onChange={(e) => setExportArticle(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <span className="text-gray-900 dark:text-white">Export Article Fund Requests</span>
-                </label>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => {
-                    setShowExportModal(false);
-                    setExportAid(false);
-                    setExportArticle(false);
-                  }}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  disabled={exporting}
-                >
-                  Cancel
-                </button>
-                {canExport() && (
-                  <button
-                    onClick={handleExport}
-                    disabled={exporting || (!exportAid && !exportArticle)}
-                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {exporting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Exporting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Download className="w-4 h-4" />
-                        <span>Export</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}

@@ -17,8 +17,9 @@ export interface RecipientFormData {
   aadhar_number?: string;
   address?: string;
   cheque_in_favour?: string;
-  cheque_sl_no?: string;
+  cheque_no?: string;
   notes?: string;
+  district_name?: string;
   beneficiaryOptions?: any[];
   loadingBeneficiaries?: boolean;
   selectedDistrictId?: string;
@@ -30,7 +31,7 @@ export interface ArticleDetails {
   price_including_gst?: number;
   supplier_article_name?: string;
   cheque_in_favour?: string;
-  cheque_sl_no?: string;
+  cheque_no?: string;
 }
 
 export interface FundRequestDraft {
