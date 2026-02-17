@@ -146,11 +146,11 @@ const styles = StyleSheet.create({
   colName: { width: '15%' },
   colInstitution: { width: '13%' },
   colDetails: { width: '6%' },
-  colFundRequested: { width: '12%' },
+  colFundRequested: { width: '11%' },
   colAadhar: { width: '12%' },
-  colChequeFavour: { width: '20%' },
+  colChequeFavour: { width: '19%' },
   colChequeSl: {
-    width: '5%',
+    width: '7%',
     paddingRight: 6,
   },
 
