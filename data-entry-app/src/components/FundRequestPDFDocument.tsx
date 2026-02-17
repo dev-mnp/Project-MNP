@@ -196,21 +196,18 @@ const styles = StyleSheet.create({
   right: 30,
   flexDirection: 'row',
   alignItems: 'center',
-  borderTopWidth: 0.5,
-  borderTopColor: '#ccc',
-  paddingTop: 5,
   },
+
   footerLeft: {
-    position: 'absolute',
-    left: 0,
     fontSize: 9,
   },
+
   footerCenter: {
+    position: 'absolute',
     width: '100%',
     textAlign: 'center',
     fontSize: 9,
   },
-
 
   cumulativeTable: {
     marginTop: 10,
@@ -615,18 +612,19 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
         </View>
 
         <View style={styles.footerFixed} fixed>
-          {/* Left: Fund Request Info */}
+          {/* Left: Only FR Number */}
           <Text style={styles.footerLeft}>
-            {`Fund Request No: ${fundRequest.fund_request_number} , Dated ${formattedDate}`}
+            {fundRequest.fund_request_number}
           </Text>
 
           {/* Center: Page Number */}
           <Text
             style={styles.footerCenter}
             render={({ pageNumber, totalPages }) =>
-                        `Page ${pageNumber} of ${totalPages}`}/>
+              `Page ${pageNumber} of ${totalPages}`
+            }
+          />
         </View>
-
       </Page>
     </Document>
   );
