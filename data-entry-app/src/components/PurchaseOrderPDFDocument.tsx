@@ -44,12 +44,12 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
  leftHeader: {
-    width: '30%',
+    width: '35%',
     alignItems: 'flex-start',
   },
 
   centerHeader: {
-    width: '40%',
+    width: '35%',
     alignItems: 'center',
   },
 
