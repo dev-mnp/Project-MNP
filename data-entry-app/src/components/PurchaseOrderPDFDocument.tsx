@@ -43,24 +43,21 @@ const styles = StyleSheet.create({
   companyInfoLine: {
     marginBottom: 2,
   },
+ leftHeader: {
+    width: '30%',
+    alignItems: 'flex-start',
+  },
+
   centerHeader: {
-    width: '60%',
+    width: '40%',
     alignItems: 'center',
-    paddingTop: 5,
   },
 
   rightHeader: {
-    width: '20%',
+    width: '30%',
     alignItems: 'flex-end',
-    paddingTop: 5,
-    marginRight: -10,
   },
-  leftHeader: {
-    width: '20%',
-    alignItems: 'flex-start',
-    paddingTop: 5,
-    marginLeft: -10,
-  },
+
    guruLogo: {
         width: '100%',
         height: 70,
@@ -72,6 +69,7 @@ const styles = StyleSheet.create({
     color: '#008000',
     marginBottom: 5,
     textAlign: 'center',
+    marginTop: 15
   },
   // poDateContainer: {
   //   position: 'absolute',
@@ -86,11 +84,15 @@ const styles = StyleSheet.create({
 
   poMetaRight: {
     fontSize: 10,
-    marginTop: 25,      // pushes it downward
-    marginRight: 15,    // moves it slightly left
+    fontWeight: 'bold',
+    marginTop: 6,
     textAlign: 'right',
   },
-
+  poAddressBlock: {
+    fontSize: 8,
+    marginTop: 6,
+    lineHeight: 1.4,
+  },
 
   poDate: {
     fontSize: 12,
@@ -221,11 +223,13 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
               />
             )}
 
-            {fundRequest.purchase_order_number && (
-              <Text style={styles.poMetaLeft} wrap={false}>
-                {`PO No: ${fundRequest.purchase_order_number}`}
-              </Text>
-            )}
+            <View style={styles.poAddressBlock}>
+              <Text>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>
+              <Text>GST Road, Melmaruvathur 603319</Text>
+              <Text>Chengalpet District, Tamilnadu</Text>
+              <Text>GST NO: 33AACTM0073D1Z5.</Text>
+              <Text>Website: maruvoorhelp@gmail.com</Text>
+            </View>
           </View>
 
 
@@ -242,6 +246,13 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
                 style={styles.logo}
               />
             )}
+
+            {fundRequest.purchase_order_number && (
+              <Text style={styles.poMetaRight} wrap={false}>
+                {`PO No: ${fundRequest.purchase_order_number}`}
+              </Text>
+            )}
+
             <Text style={styles.poMetaRight}>
               DATE: {currentDate}
             </Text>
