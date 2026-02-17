@@ -272,7 +272,7 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
                   .filter(Boolean)
                   .join(', ')}
               </Text>
-              <Text style={styles.sectionLine}>GST {fundRequest.gst_number || ''}</Text>
+              <Text style={styles.sectionLine}>GST No: {fundRequest.gst_number || ''}</Text>
             </View>
           </View>
           <View style={styles.shipToSection}>
