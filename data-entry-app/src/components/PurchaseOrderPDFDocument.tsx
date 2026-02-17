@@ -228,6 +228,7 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
             )}
           </View>
 
+
           {/* Center: Title and Date */}
           <View style={styles.centerHeader}>
             <Text style={styles.poTitle}>PURCHASE ORDER</Text>
