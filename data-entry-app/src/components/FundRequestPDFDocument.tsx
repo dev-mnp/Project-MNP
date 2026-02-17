@@ -78,9 +78,9 @@ const styles = StyleSheet.create({
   height: 70,
   objectFit: 'contain',
 },
-  header: {
-  textAlign: 'center',
+ header: {
   width: '100%',
+  alignItems: 'center',
 },
 
   omsakthiTitle: {
@@ -104,6 +104,7 @@ const styles = StyleSheet.create({
   fontWeight: 'bold',
   marginTop: 5,
   textAlign: 'center',
+  width: '100%',
 },
 
   table: {
@@ -378,7 +379,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 </View>
                 <View style={[styles.tableCell, styles.colDetails]}>
                   <Text style={styles.tableCellText} wrap>
-                    {breakLongText(recipient.notes || recipient.details || '', 25)}
+                    {recipient.notes || recipient.details || ''}
                   </Text>
                 </View>
                 <View style={[styles.tableCell, styles.colFundRequested]}>
