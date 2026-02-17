@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   tableHeaderText: {
-      fontSize: 11,
+      fontSize: 9,
       fontWeight: 'bold',
       lineHeight: 1.3,
 },
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     // flexGrow: 0,
   },
   tableCellText: {
-    fontSize: 10,
+    fontSize: 9,
     lineHeight: 1.3,
   },
   colSlNo: { width: '5%' },
