@@ -129,8 +129,8 @@ const styles = StyleSheet.create({
 },
 
   tableCell: {
-    paddingHorizontal: 3,
-    paddingVertical: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
     minHeight: 15,
     justifyContent: 'flex-start',
     alignItems: 'flex-start',
