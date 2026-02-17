@@ -44,10 +44,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
  leftHeader: {
-    width: '20%',
+    width: '33%',
     alignItems: 'flex-start',
-    paddingTop: 5,
-    marginLeft: -20,   // increase from -10
   },
 
   centerHeader: {
@@ -56,10 +54,8 @@ const styles = StyleSheet.create({
   },
 
   rightHeader: {
-    width: '20%',
+    width: '33%',
     alignItems: 'flex-end',
-    paddingTop: 5,
-    marginRight: -20,  // increase from -10
   },
 
    guruLogo: {
