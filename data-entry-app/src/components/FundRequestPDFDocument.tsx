@@ -34,19 +34,19 @@ const styles = StyleSheet.create({
     fontFamily: 'Helvetica',
   },
   headerSection: {
-    flexDirection: 'row',
-    marginBottom: 20,
-    position: 'relative',
-  },
+  flexDirection: 'row',
+  marginBottom: 20,
+  alignItems: 'flex-start',
+},
   logoSection: {
     width: '30%',
     marginRight: 20,
   },
   logo: {
-    width: 80,
-    height: 70,
-    marginBottom: 5,
-  },
+  width: '100%',
+  height: 70,
+  objectFit: 'contain',
+},
   companyInfo: {
     fontSize: 9,
     lineHeight: 1.4,
@@ -56,37 +56,36 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   centerHeader: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 5,
-    backGroundColour:'green',
-  },
+  width: '60%',
+  alignItems: 'center',
+  paddingTop: 5,
+},
   rightHeader: {
-    width: '30%',
-    alignItems: 'flex-end',
-    paddingTop: 5,
-  },
+  width: '20%',
+  alignItems: 'flex-end',
+  paddingTop: 5,
+},
   leftHeader: {
-    width: '30%',
-    alignItems: 'flex-start',
-    paddingTop: 5,
-  },
+  width: '20%',
+  alignItems: 'flex-start',
+  paddingTop: 5,
+},
   guruLogo: {
-    width: 80,
-    height: 70,
-    marginBottom: 5,
-  },
+  width: '100%',
+  height: 70,
+  objectFit: 'contain',
+},
   header: {
-    marginBottom: 20,
-    textAlign: 'center',
-    backGroundColour:'green',
-  },
+  textAlign: 'center',
+  width: '100%',
+},
+
   omsakthiTitle: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
+  fontSize: 14,
+  fontWeight: 'bold',
+  marginBottom: 6,
+  textAlign: 'center',
+},
   paymentDetails: {
     fontSize: 13,
     marginBottom: 5,
@@ -98,11 +97,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   fundRequestTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginTop: 5,
-    textAlign: 'left',
-  },
+  fontSize: 15,
+  fontWeight: 'bold',
+  marginTop: 5,
+  textAlign: 'center',
+},
+
   table: {
     marginTop: 15,
     marginBottom: 15,
@@ -271,7 +271,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
               <Text style={styles.paymentDetails}>Payment Request Details for MASM Makkal Nala Pani Programme on the eve
                                                   of 86th Birthday Celebrations of His Holiness AMMA at Melmaruvathur on 03-03-2026</Text>
               {/*<Text style={styles.celebrations}></Text>*/}
-              <Text style={styles.fundRequestTitle}>{titleText}</Text>
+              <Text style={styles.fundRequestTitle}wrap={false}>{titleText}</Text>
             </View>
           </View>
           {/* Right: Current Logo */}
