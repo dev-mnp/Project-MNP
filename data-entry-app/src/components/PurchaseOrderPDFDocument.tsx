@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   poTitle: {
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#008000',
     marginBottom: 5,
