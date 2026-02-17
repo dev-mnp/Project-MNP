@@ -145,6 +145,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     lineHeight: 1.3,
   },
+
   colSlNo: { width: '5%' },
   colBeneficiary: { width: '10%' },
   colName: { width: '14%' },
