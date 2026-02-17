@@ -59,6 +59,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingTop: 5,
+    backGroundColour:'green',
   },
   rightHeader: {
     width: '30%',
@@ -78,9 +79,10 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 20,
     textAlign: 'center',
+    backGroundColour:'green',
   },
   omsakthiTitle: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
