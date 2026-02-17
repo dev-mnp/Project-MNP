@@ -196,6 +196,9 @@ const styles = StyleSheet.create({
   right: 30,
   flexDirection: 'row',
   alignItems: 'center',
+  borderTopWidth: 0.5,
+  borderTopColor: '#ccc',
+  paddingTop: 5,
   },
   footerLeft: {
     position: 'absolute',
