@@ -141,18 +141,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 1.3,
   },
-  colSlNo: { flex: 0.04 },
-  colBeneficiary: { flex: 0.12 },
-  colName: { flex: 0.14 },
-  colInstitution: { flex: 0.14 },
-  colDetails: { flex: 0.06 }, // Reduced further for QTY (max 3 digits)
-  colFundRequested: { flex: 0.12 },
-  colAadhar: { flex: 0.12 },
-  colChequeFavour: { width: '16%' },
+  colSlNo: { width: '5%' },
+  colBeneficiary: { width: '12%' },
+  colName: { width: '15%' },
+  colInstitution: { width: '10%' },
+  colDetails: { width: '6%' },
+  colFundRequested: { width: '12%' },
+  colAadhar: { width: '12%' },
+  colChequeFavour: { width: '18%' },
   colChequeSl: {
-    width: '10%', // Increased to give more space for CHEQUE NO.
+    width: '10%',
     paddingRight: 6,
   },
+
   totalRow: {
     fontWeight: 'bold',
     backgroundColor: '#f5f5f5',
