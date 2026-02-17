@@ -29,9 +29,12 @@ const breakLongText = (text: string, maxLength: number = 20): string => {
 // Define styles
 const styles = StyleSheet.create({
   page: {
-    padding: 30,
     fontSize: 11,
     fontFamily: 'Helvetica',
+    paddingTop: 30,
+    paddingLeft: 30,
+    paddingRight: 30,
+    paddingBottom: 60,
   },
   headerSection: {
   flexDirection: 'row',
@@ -186,6 +189,26 @@ const styles = StyleSheet.create({
     fontSize: 9,
     marginBottom: 3,
   },
+  footerFixed: {
+  position: 'absolute',
+  bottom: 20,
+  left: 30,
+  right: 30,
+  flexDirection: 'row',
+  alignItems: 'center',
+  },
+  footerLeft: {
+    position: 'absolute',
+    left: 0,
+    fontSize: 9,
+  },
+  footerCenter: {
+    width: '100%',
+    textAlign: 'center',
+    fontSize: 9,
+  },
+
+
   cumulativeTable: {
     marginTop: 10,
   },
@@ -586,6 +609,20 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
             </View>
           </View>
         </View>
+
+        <View style={styles.footerFixed} fixed>
+          {/* Left: Fund Request Info */}
+          <Text style={styles.footerLeft}>
+            {`Fund Request No: ${fundRequest.fund_request_number} , Dated ${formattedDate}`}
+          </Text>
+
+          {/* Center: Page Number */}
+          <Text
+            style={styles.footerCenter}
+            render={({ pageNumber, totalPages }) =>
+                        `Page ${pageNumber} of ${totalPages}`}/>
+        </View>
+
       </Page>
     </Document>
   );
