@@ -428,7 +428,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 <Text style={styles.tableHeaderText}>QTY</Text>
               </View>
               <View style={[styles.tableCell, styles.colFundRequested]}>
-                <Text style={styles.tableHeaderText}>PRICE INCLUDING GST</Text>
+                <Text style={styles.tableHeaderText}>PRICE (INCL GST)</Text>
               </View>
               <View style={[styles.tableCell, styles.colAadhar]}>
                 <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>VALUE</Text>
