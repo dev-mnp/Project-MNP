@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
   paymentDetails: {
     fontSize: 13,
     marginBottom: 5,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   celebrations: {
     fontSize: 13,
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginTop: 5,
-    textAlign: 'center',
+    textAlign: 'left',
   },
   table: {
     marginTop: 15,
@@ -268,8 +268,9 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
             {/* Header - Matching Excel template format */}
             <View style={styles.header}>
               <Text style={styles.omsakthiTitle}>OMSAKTHI</Text>
-              <Text style={styles.paymentDetails}>Payment Request Details for MASM Makkal Nala Pani Programme on the eve of 86th Birthday</Text>
-              <Text style={styles.celebrations}>Celebrations of His Holiness AMMA at Melmaruvathur on 03-03-2026</Text>
+              <Text style={styles.paymentDetails}>Payment Request Details for MASM Makkal Nala Pani Programme on the eve
+                                                  of 86th Birthday Celebrations of His Holiness AMMA at Melmaruvathur on 03-03-2026</Text>
+              {/*<Text style={styles.celebrations}></Text>*/}
               <Text style={styles.fundRequestTitle}>{titleText}</Text>
             </View>
           </View>

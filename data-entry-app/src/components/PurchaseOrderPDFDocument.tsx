@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     paddingTop: 5,
   },
   guruLogo: {
-    width: 80,
+    width: 70,
     height: 70,
     marginBottom: 5,
   },
