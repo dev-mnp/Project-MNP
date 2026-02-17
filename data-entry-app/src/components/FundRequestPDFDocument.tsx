@@ -342,7 +342,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
                 <Text style={styles.tableHeaderText}>Details</Text>
               </View>
               <View style={[styles.tableCell, styles.colFundRequested]}>
-                <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>Fund Requested</Text>
+                <Text style={[styles.tableCellText, { fontWeight: 'bold', textAlign: 'right' }]}>Fund {"\n"}Requested</Text>
               </View>
               <View style={[styles.tableCell, styles.colAadhar]}>
                 <Text style={styles.tableHeaderText}>Aadhar No</Text>
