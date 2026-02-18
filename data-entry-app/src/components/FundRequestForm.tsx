@@ -8,7 +8,7 @@ import {
   type FundRequest,
   type FundRequestRecipient,
 } from '../services/fundRequestService';
-import { fetchAllArticles, type ArticleRecord } from '../services/articlesService';
+import { fetchAllArticles, createArticle, toggleArticleStatus, type ArticleRecord } from '../services/articlesService';
 import { getConsolidatedOrders } from '../services/orderConsolidationService';
 import {
   fetchDistrictBeneficiariesForDropdown,
@@ -46,6 +46,7 @@ const FundRequestForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [articles, setArticles] = useState<ArticleRecord[]>([]);
+  const realArticleIdByNameRef = useRef<Map<string, string>>(new Map());
 
   // Form state
   const [formData, setFormData] = useState<Partial<FundRequest>>({
@@ -390,56 +391,64 @@ const FundRequestForm: React.FC = () => {
     id,
   ]);
 
+  const normalizeArticleName = (name: string): string =>
+    name.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const isVirtualSplitId = (id: string): boolean => id.startsWith('split::');
+
   const loadArticles = async () => {
     try {
       const data = await fetchAllArticles(true);
       // Filter articles by item_type based on fund request type
       if (fundRequestType === 'Article') {
-        // For Article fund requests, get split article names from order management
+        // For Article fund requests, use the consolidated order list (split names).
+        // This keeps the dropdown aligned with Order Management.
+        let consolidatedArticles: { articleName: string; itemType?: string }[] = [];
         try {
           const consolidatedOrders = await getConsolidatedOrders();
-          const splitArticleNames = new Set<string>();
-          
-          // Collect all split article names from consolidated orders
-          consolidatedOrders.articles.forEach(article => {
-            if (article.itemType === 'Article') {
-              splitArticleNames.add(article.articleName);
-            }
-          });
-          
-          // Get original articles where item_type = 'Article'
-          const originalArticles = data.filter(a => a.item_type === 'Article');
-          
-          // Create a map of original articles by name for quick lookup
-          const originalArticlesMap = new Map<string, ArticleRecord>();
-          originalArticles.forEach(article => {
-            originalArticlesMap.set(article.article_name, article);
-          });
-          
-          // Combine original articles and split articles
-          const combinedArticles: ArticleRecord[] = [...originalArticles];
-          
-          // Add split articles that don't exist in original articles
-          splitArticleNames.forEach(splitName => {
-            if (!originalArticlesMap.has(splitName)) {
-              // Create a virtual article record for the split name
-              combinedArticles.push({
-                id: splitName, // Use split name as ID
-                article_name: splitName,
-                article_name_tk: undefined,
-                cost_per_unit: 0, // Default to 0 for Fund Request Article
-                item_type: 'Article',
-                category: undefined,
-                is_active: true,
-              });
-            }
-          });
-          
-          setArticles(combinedArticles);
+          consolidatedArticles = consolidatedOrders.articles.filter(
+            article => article.itemType === 'Article'
+          );
         } catch (consolidationError) {
-          console.error('Failed to load consolidated orders, using original articles only:', consolidationError);
-          // Fallback to original articles if consolidation fails
-          setArticles(data.filter(a => a.item_type === 'Article'));
+          console.error('Failed to load consolidated orders for Fund Request:', consolidationError);
+          // Fallback to empty list; caller will still have real articles mapping
+          consolidatedArticles = [];
+        }
+
+        // Map real articles by normalized name for fast lookup
+        const realArticles = data.filter(a => a.item_type === 'Article');
+        const realByName = new Map<string, ArticleRecord>();
+        realArticles.forEach(article => {
+          realByName.set(normalizeArticleName(article.article_name), article);
+        });
+        realArticleIdByNameRef.current = new Map(
+          Array.from(realByName.entries()).map(([key, article]) => [key, article.id])
+        );
+
+        if (consolidatedArticles.length === 0) {
+          // If no consolidation data is available, fall back to real articles
+          setArticles(realArticles);
+        } else {
+          // Build dropdown list from consolidated order names
+          const dropdownArticles: ArticleRecord[] = consolidatedArticles.map((item) => {
+            const normalizedName = normalizeArticleName(item.articleName);
+            const existing = realByName.get(normalizedName);
+            if (existing) return existing;
+
+            // Virtual record for split names not in articles table (resolved on save)
+          return {
+            id: `split::${item.articleName}`,
+            article_name: item.articleName,
+            article_name_tk: undefined,
+            cost_per_unit: 0,
+            item_type: 'Article',
+            category: undefined,
+            combo: true,
+            is_active: true,
+          };
+          });
+
+          setArticles(dropdownArticles);
         }
       } else {
         // For Aid fund requests, show all articles (existing behavior)
@@ -783,6 +792,31 @@ const FundRequestForm: React.FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  const resolveSplitArticleId = async (articleName: string): Promise<string> => {
+    const normalizedName = normalizeArticleName(articleName);
+    const existingId = realArticleIdByNameRef.current.get(normalizedName);
+    if (existingId) {
+      return existingId;
+    }
+
+    const created = await createArticle({
+      article_name: articleName,
+      cost_per_unit: 0,
+      item_type: 'Article',
+      combo: true,
+    });
+
+    // Keep split articles out of normal article pickers (used only for ordering)
+    try {
+      await toggleArticleStatus(created.id, false);
+    } catch (error) {
+      console.warn('Failed to mark split article inactive:', error);
+    }
+
+    realArticleIdByNameRef.current.set(normalizedName, created.id);
+    return created.id;
+  };
+
   const handleSave = async () => {
     if (!validateForm()) {
       showError('Please fix the errors in the form.');
@@ -848,13 +882,16 @@ const FundRequestForm: React.FC = () => {
           });
         }
       } else {
-        const articlesData = selectedArticles.map((article, index) => {
+        const articlesData = await Promise.all(selectedArticles.map(async (article, index) => {
+          const resolvedArticleId = isVirtualSplitId(article.articleId)
+            ? await resolveSplitArticleId(article.articleName)
+            : article.articleId;
           // Use values from ArticleSelection (cheque_in_favour, supplier_article_name)
           // and sync with articleDetails for price_including_gst
           const details = articleDetails.get(article.articleId) || { price_including_gst: 0 };
           
           return {
-            article_id: article.articleId,
+            article_id: resolvedArticleId,
             sl_no: index + 1, // Auto-generate SL.NO
             beneficiary: 'Dist & Public', // Auto-set beneficiary
             article_name: article.articleName,
@@ -869,7 +906,7 @@ const FundRequestForm: React.FC = () => {
             cheque_no: details.cheque_no, // Still from articleDetails (not in ArticleRow yet)
             description: article.description,
           };
-        });
+        }));
 
         if (id) {
           await updateFundRequest(id, {

@@ -437,7 +437,9 @@ const ArticleManagement: React.FC = () => {
 
   const handleExport = async () => {
     try {
-      const exportData = filteredArticles.map((article) => ({
+      const exportData = filteredArticles
+        .filter((article) => !article.combo)
+        .map((article) => ({
         article_name: article.article_name,
         cost_per_unit: article.cost_per_unit,
         item_type: article.item_type,

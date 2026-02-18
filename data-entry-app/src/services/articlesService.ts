@@ -10,6 +10,7 @@ export interface ArticleRecord {
   item_type: string;
   category?: string;
   master_category?: string;
+  combo?: boolean;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;
@@ -54,6 +55,7 @@ export const fetchAllArticles = async (includeInactive: boolean = true): Promise
       item_type: record.item_type || 'Article',
       category: record.category || null,
       master_category: record.master_category || null,
+      combo: record.combo ?? false,
       is_active: record.is_active ?? true,
       created_at: record.created_at,
       updated_at: record.updated_at,
@@ -171,6 +173,7 @@ export const createArticle = async (article: {
   item_type: string;
   category?: string;
   master_category?: string;
+  combo?: boolean;
 }): Promise<ArticleRecord> => {
   try {
     const { data, error } = await supabase
@@ -192,6 +195,7 @@ export const createArticle = async (article: {
       item_type: data.item_type || 'Article',
       category: data.category || null,
       master_category: data.master_category || null,
+      combo: data.combo ?? false,
       is_active: data.is_active ?? true,
       created_at: data.created_at,
       updated_at: data.updated_at,
@@ -209,6 +213,7 @@ export const createArticle = async (article: {
         item_type: result.item_type,
         category: result.category,
         master_category: result.master_category,
+        combo: result.combo,
         is_active: result.is_active,
       },
     });
@@ -232,6 +237,7 @@ export const updateArticle = async (
     item_type?: string;
     category?: string;
     master_category?: string;
+    combo?: boolean;
   }
 ): Promise<ArticleRecord> => {
   try {
@@ -262,6 +268,7 @@ export const updateArticle = async (
       item_type: data.item_type || 'Article',
       category: data.category || null,
       master_category: data.master_category || null,
+      combo: data.combo ?? false,
       is_active: data.is_active ?? true,
       created_at: data.created_at,
       updated_at: data.updated_at,
