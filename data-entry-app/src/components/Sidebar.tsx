@@ -7,7 +7,7 @@ import {
   sidebarClasses
 } from 'react-pro-sidebar';
 import { 
-  // LayoutDashboard, // Commented out - dashboard menu is disabled
+  LayoutDashboard,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -41,7 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const menuItems = [
-    // { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { id: 'master-entry', label: 'Master Entry', icon: FileText, path: '/master-entry' },
     { id: 'article-management', label: 'Article Management', icon: Package, path: '/article-management' },
     { id: 'inventory-management', label: 'Order Management', icon: Warehouse, path: '/inventory-management' },

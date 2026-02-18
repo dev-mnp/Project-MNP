@@ -87,7 +87,7 @@ const AppContent: React.FC = () => {
       {/* Public routes */}
       <Route 
         path="/login" 
-        element={!isAuthenticated ? <Login /> : <Navigate to="/master-entry" replace />} 
+        element={!isAuthenticated ? <Login /> : <Navigate to="/dashboard" replace />} 
       />
       
       {/* Protected routes */}
@@ -97,7 +97,7 @@ const AppContent: React.FC = () => {
           <ProtectedRoute>
             <AppLayout>
               <Routes>
-                <Route path="/" element={<Navigate to="/master-entry" replace />} />
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/master-entry" element={<MasterEntry />} />
                 <Route path="/article-management" element={<ArticleManagement />} />
@@ -108,7 +108,7 @@ const AppContent: React.FC = () => {
                 <Route path="/user-management" element={<UserManagement />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/audit-logs" element={<AuditLogs />} />
-                <Route path="*" element={<Navigate to="/master-entry" replace />} />
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </AppLayout>
           </ProtectedRoute>

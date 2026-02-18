@@ -158,7 +158,7 @@ const ArticleManagement: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const data = await fetchAllArticles(true);
+      const data = await fetchAllArticles(false);
       clearTimeout(timeoutId);
       
       const fetchDuration = Date.now() - fetchStartTime;

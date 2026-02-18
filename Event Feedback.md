@@ -54,7 +54,8 @@ types : ( people who collect at waitinghall, event , already received the cheuqe
 32. Modify code so that if token should be given for slected people (eg: only 5 tokens for flood, accident)
 33. add new column in generated token file, that will tell whom to print labels for chair
 34. while updating inventory, update them specifically for who it is. public or districts or instn etc.
-35. in public validation - add a column comments to check why they are rejected as well.
 36. Add a storage option to upload and view applications for each records
 37. Price and other variable change need to be rflected throughout
 38. Previous Aadhar number database to be updated with district's beneficiary as well (from Fund Request)
+39. Quotation mangement - for 2027
+

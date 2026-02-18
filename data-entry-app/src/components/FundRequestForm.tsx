@@ -234,7 +234,7 @@ const FundRequestForm: React.FC = () => {
     if (fundRequestType === 'Article' && !id && !formData.notes) {
       setFormData(prev => ({
         ...prev,
-        notes: 'Delivery period - within a week.\nPayment terms - immediate after delivery.\nTransport cost - inclusive/exclusive.',
+        notes: 'Purchase order issued with reference to: \nDelivery Period - Within a Week.\nPayment Terms - Immediate after delivery.\nTransport Cost - Inclusive.',
       }));
     }
   }, [fundRequestType, id]);

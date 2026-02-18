@@ -742,8 +742,8 @@ const MasterEntry: React.FC = () => {
       if (!formData.mobile) {
         newErrors.mobile = 'Valid mobile number is required';
       } else {
-        // Validate comma-separated mobile numbers
-        const mobileNumbers = formData.mobile.split(',').map(num => num.trim()).filter(num => num.length > 0);
+        // Validate &-separated mobile numbers
+        const mobileNumbers = formData.mobile.split('&').map(num => num.trim()).filter(num => num.length > 0);
         if (mobileNumbers.length === 0) {
           newErrors.mobile = 'At least one mobile number is required';
         } else {
@@ -2556,18 +2556,27 @@ const MasterEntry: React.FC = () => {
             type="text"
             value={formData.mobile || ''}
             onChange={(e) => {
-              // Allow digits and commas only
-              let value = e.target.value.replace(/[^\d,]/g, '');
-              // Prevent consecutive commas
-              value = value.replace(/,+/g, ',');
-              // Remove leading comma
-              if (value.startsWith(',')) {
-                value = value.substring(1);
-              }
+              // Allow digits and ampersand only
+              let value = e.target.value.replace(/[^\d& ]/g, '');
+              value = value.replace(/&+/g, '&');
               setFormData({ ...formData, mobile: value });
             }}
+            onBlur={(e) => {
+              let value = e.target.value.replace(/[^\d& ]/g, '');
+              value = value.replace(/&+/g, '&');
+              value = value.replace(/\s+/g, ' ').trim();
+              if (value.startsWith('&')) {
+                value = value.substring(1);
+              }
+              const normalized = value
+                .split('&')
+                .map((num) => num.trim())
+                .filter((num) => num.length > 0)
+                .join(' & ');
+              setFormData({ ...formData, mobile: normalized });
+            }}
             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            placeholder="Enter mobile number(s) separated by comma (e.g., 1234567890,9876543210)"
+            placeholder="Enter mobile number(s) separated by & (e.g., 1234567890 & 9876543210)"
           />
           {errors.mobile && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.mobile}</p>
