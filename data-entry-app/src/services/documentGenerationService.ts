@@ -8,6 +8,7 @@ import FundRequestPDFDocument from '../components/FundRequestPDFDocument';
 import PurchaseOrderPDFDocument from '../components/PurchaseOrderPDFDocument';
 import { formatDate, getBeneficiaryDisplayValue } from '../utils/fundRequestUtils';
 import guruLogoPath from '../assets/guru-logo.jpg';
+import signaturePath from '../assets/sign.jpg';
 
 // Flag to enable/disable XLSX generation (currently disabled)
 export const ENABLE_XLSX_GENERATION = false;
@@ -33,7 +34,7 @@ export const generateFundRequestPDF = async (
     }
 
     // Load logos as data URIs
-    const { currentLogo, guruLogo } = await loadLogosAsDataUri();
+    const { currentLogo, guruLogo, signature } = await loadLogosAsDataUri();
 
     // Generate PDF using React PDF
     const pdfDoc = React.createElement(FundRequestPDFDocument, {
@@ -41,6 +42,7 @@ export const generateFundRequestPDF = async (
       previousCumulative,
       logoDataUri: currentLogo,
       guruLogoDataUri: guruLogo,
+      signatureDataUri: signature,
       orientation,
     }) as React.ReactElement;
 
@@ -835,7 +837,11 @@ export const generatePurchaseOrderDocument = async (fundRequestId: string): Prom
  * Load logo images and convert to data URIs
  * Returns both current logo (for right side) and guru logo (for left side)
  */
-const loadLogosAsDataUri = async (): Promise<{ currentLogo: string | null; guruLogo: string | null }> => {
+const loadLogosAsDataUri = async (): Promise<{
+  currentLogo: string | null;
+  guruLogo: string | null;
+  signature: string | null;
+}> => {
   const loadImageAsDataUri = async (url: string): Promise<string | null> => {
     try {
       const response = await fetch(url);
@@ -890,7 +896,23 @@ const loadLogosAsDataUri = async (): Promise<{ currentLogo: string | null; guruL
     console.warn('Could not load guru logo:', error);
   }
 
-  return { currentLogo, guruLogo };
+  // Load signature image (sign.jpg) - for "FOR MASM" section
+  let signature: string | null = null;
+  try {
+    if (signaturePath) {
+      signature = await loadImageAsDataUri(signaturePath);
+    }
+    if (!signature) {
+      signature = await loadImageAsDataUri('/src/assets/sign.jpg');
+    }
+    if (!signature) {
+      signature = await loadImageAsDataUri('/sign.jpg');
+    }
+  } catch (error) {
+    console.warn('Could not load signature image:', error);
+  }
+
+  return { currentLogo, guruLogo, signature };
 };
 
 /**

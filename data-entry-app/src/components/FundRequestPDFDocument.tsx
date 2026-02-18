@@ -244,6 +244,27 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: 'bold',
   },
+  signatureBlock: {
+  alignItems: 'flex-end',
+  marginTop: 10,
+  marginRight: '10%',   // aligns roughly under Cheque column
+  },
+
+  signatureImage: {
+    width: 120,
+    height: 50,
+    objectFit: 'contain',
+    marginBottom: 4,
+  },
+
+  signatureName: {
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
+
+  signatureDesignation: {
+    fontSize: 9,
+  },
   signatureText: {
     fontSize: 9,
     marginBottom: 2,
@@ -264,6 +285,7 @@ interface FundRequestPDFDocumentProps {
   previousCumulative: number;
   logoDataUri?: string | null;
   guruLogoDataUri?: string | null;
+  signatureDataUri?: string | null;
   orientation?: 'portrait' | 'landscape';
 }
 
@@ -272,6 +294,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
   previousCumulative,
   logoDataUri,
   guruLogoDataUri,
+  signatureDataUri,
   orientation = 'portrait'
 }) => {
   const currentTotal = fundRequest.total_amount || 0;
@@ -553,7 +576,18 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
         <View style={styles.forMasSection}>
           <Text style={styles.forMasText}>FOR MASM</Text>
         </View>
-
+        <View style={styles.signatureBlock}>
+          {signatureDataUri && (
+            <Image
+              src={signatureDataUri}
+              style={styles.signatureImage}
+            />
+          )}
+          <Text style={styles.signatureName}>R.Surendranath</Text>
+          <Text style={styles.signatureDesignation}>
+            JS - Social Welfare Activities
+          </Text>
+        </View>
         {/*/!* Address Section at Bottom *!/*/}
         {/*<View style={styles.footerAddressSection}>*/}
         {/*  <Text style={styles.footerAddressLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>*/}
