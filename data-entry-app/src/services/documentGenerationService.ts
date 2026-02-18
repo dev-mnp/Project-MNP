@@ -953,13 +953,14 @@ export const generatePurchaseOrderPDF = async (fundRequestId: string): Promise<B
     }
 
     // Load logos as data URIs
-    const { currentLogo, guruLogo } = await loadLogosAsDataUri();
+    const { currentLogo, guruLogo, signature } = await loadLogosAsDataUri();
 
     // Generate PDF using React PDF
     const pdfDoc = React.createElement(PurchaseOrderPDFDocument, {
       fundRequest,
       logoDataUri: currentLogo,
       guruLogoDataUri: guruLogo,
+      signatureDataUri: signature,
     }) as React.ReactElement;
 
     // Generate PDF blob

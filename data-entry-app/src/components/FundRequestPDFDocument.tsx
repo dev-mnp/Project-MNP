@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
   tableHeader: {
     backgroundColor: '#f0f0f0',
     fontWeight: 'bold',
-    paddingVertical: 6,
+    paddingVertical: 2,
   },
   tableHeaderText: {
       fontSize: 9,
@@ -162,14 +162,11 @@ const styles = StyleSheet.create({
   totalRow: {
     fontWeight: 'bold',
     backgroundColor: '#f5f5f5',
-    paddingVertical: 6,
+    paddingVertical: 2,
   },
   signatureSection: {
     marginTop: 20,
     alignItems: 'flex-end',
-  },
-  signatureBlock: {
-    width: '45%',
   },
   signatureLabel: {
     marginBottom: 25,
@@ -182,10 +179,10 @@ const styles = StyleSheet.create({
     height: 20,
   },
   footerSection: {
-    marginTop: 20,
+    marginTop: 12,
   },
   footerSpacing: {
-    height: 15,
+    height: 6,
   },
   footerText: {
     fontSize: 9,
@@ -212,7 +209,7 @@ const styles = StyleSheet.create({
   },
 
   cumulativeTable: {
-    marginTop: 10,
+    marginTop: 4,
   },
   cumulativeRow: {
     flexDirection: 'row',
@@ -236,7 +233,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   forMasSection: {
-    marginTop: 10,
+    marginTop: 2,
     alignItems: 'flex-end',
     paddingRight: '10%', // Align to column H (Cheque in Favour column)
   },
@@ -244,15 +241,24 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: 'bold',
   },
+  signatureRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  approvalsBlock: {
+    width: '55%',
+  },
   signatureBlock: {
   alignItems: 'flex-end',
-  marginTop: 10,
+  marginTop: 4,
   marginRight: '10%',   // aligns roughly under Cheque column
   },
 
   signatureImage: {
-    width: 120,
-    height: 50,
+    width: 100,
+    height: 42,
     objectFit: 'contain',
     marginBottom: 4,
   },
@@ -303,10 +309,10 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
   // Format the title based on fund request type
   const formattedDate = formatDate(fundRequest.created_at);
   const titleText = fundRequest.fund_request_type === 'Article'
-    ? `Fund Request No: ${fundRequest.fund_request_number}  , Dated ${formattedDate} - Article`
+    ? `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate} - Article`
     : fundRequest.aid_type
-    ? `Fund Request No: ${fundRequest.fund_request_number}  , Dated ${formattedDate} - ${fundRequest.aid_type}`
-    : `Fund Request No: ${fundRequest.fund_request_number}  , Dated ${formattedDate}`;
+    ? `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate} - ${fundRequest.aid_type}`
+    : `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate}`;
 
   return (
     <Document>
@@ -572,22 +578,32 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
           </View>
         )}
 
-        {/* FOR MASM - in column H position */}
-        <View style={styles.forMasSection}>
-          <Text style={styles.forMasText}>FOR MASM</Text>
-        </View>
-        <View style={styles.signatureBlock}>
-          {signatureDataUri && (
-            <Image
-              src={signatureDataUri}
-              style={styles.signatureImage}
-            />
-          )}
-          <Text style={styles.signatureName}>R.Surendranath</Text>
-          <Text style={styles.signatureDesignation}>
-            JS - Social Welfare Activities
-          </Text>
-        </View>
+        {/* Keep signature + totals together on the same page */}
+        <View wrap={false} minPresenceAhead={120}>
+          {/* Approvals text on left, signature on right */}
+          <View style={styles.signatureRow}>
+            <View style={styles.approvalsBlock}>
+              <Text style={styles.footerText}>1. MASM PRESIDENT's 2026 APPROVAL COPY</Text>
+              <Text style={styles.footerText}>2. QUOTATION / BANK / REQUEST COPIES</Text>
+            </View>
+            <View>
+              <View style={styles.forMasSection}>
+                <Text style={styles.forMasText}>FOR MASM</Text>
+              </View>
+              <View style={styles.signatureBlock}>
+                {signatureDataUri && (
+                  <Image
+                    src={signatureDataUri}
+                    style={styles.signatureImage}
+                  />
+                )}
+                <Text style={styles.signatureName}>R.Surendranath</Text>
+                <Text style={styles.signatureDesignation}>
+                  JS - Social Welfare Activities
+                </Text>
+              </View>
+            </View>
+          </View>
         {/*/!* Address Section at Bottom *!/*/}
         {/*<View style={styles.footerAddressSection}>*/}
         {/*  <Text style={styles.footerAddressLine}>Melmaruvathur Adhiparasakthi Spiritual Movement</Text>*/}
@@ -599,19 +615,6 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
 
         {/* Footer Section */}
         <View style={styles.footerSection}>
-          {/* 1 empty row spacing */}
-          <View style={styles.footerSpacing}></View>
-          
-          {/* Approval copies text */}
-          <Text style={styles.footerText}>1. MASM PRESIDENT's 2026 APPROVAL COPY</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Text style={styles.footerText}>2. QUOTATION / BANK / REQUEST COPIES</Text>
-            <View style={{ alignItems: 'flex-end', marginRight: '10%' }}>
-              <Text style={styles.signatureText}>R.Surendranath,</Text>
-              <Text style={styles.signatureText}>JS - Social Welfare Activities</Text>
-            </View>
-          </View>
-          
           {/* 1 empty row spacing */}
           <View style={styles.footerSpacing}></View>
           
@@ -646,6 +649,7 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
             </View>
           </View>
         </View>
+        </View>
 
         <View style={styles.footerFixed} fixed>
           {/* Left: Only FR Number */}
@@ -656,8 +660,8 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
           {/* Center: Page Number */}
           <Text
             style={styles.footerCenter}
-            render={({ pageNumber, totalPages }) =>
-              `Page ${pageNumber} of ${totalPages}`
+            render={({ pageNumber }) =>
+              `Page ${pageNumber}`
             }
           />
         </View>
@@ -667,4 +671,3 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
 };
 
 export default FundRequestPDFDocument;
-

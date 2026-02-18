@@ -184,8 +184,33 @@ const styles = StyleSheet.create({
     borderColor: '#e0e0e0',
     borderStyle: 'dashed',
   },
-  footer: {
-    marginTop: 20,
+  signatureSection: {
+    marginTop: 8,
+    alignItems: 'flex-start',
+  },
+  signatureLabel: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  signatureImage: {
+    width: 100,
+    height: 42,
+    objectFit: 'contain',
+    marginBottom: 4,
+  },
+  signatureName: {
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
+  signatureDesignation: {
+    fontSize: 9,
+  },
+  footerFixed: {
+    position: 'absolute',
+    bottom: 20,
+    left: 30,
+    right: 30,
     textAlign: 'center',
     fontSize: 9,
     lineHeight: 1.5,
@@ -199,12 +224,14 @@ interface PurchaseOrderPDFDocumentProps {
   fundRequest: FundRequestWithDetails;
   logoDataUri?: string | null;
   guruLogoDataUri?: string | null;
+  signatureDataUri?: string | null;
 }
 
 const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({ 
   fundRequest,
   logoDataUri,
-  guruLogoDataUri
+  guruLogoDataUri,
+  signatureDataUri
 }) => {
   const currentDate = formatPODate();
   const totalAmount = fundRequest.articles?.reduce((sum, article) => sum + (article.value || 0), 0) || 0;
@@ -370,13 +397,26 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
           </View>
         </View>
 
-        {/* Footer */}
-        <View style={styles.footer}>
+        {/* Signature (left, below comments) */}
+        <View style={styles.signatureSection}>
+          <Text style={styles.signatureLabel}>Authorised Signatory</Text>
+          {signatureDataUri && (
+            <Image
+              src={signatureDataUri}
+              style={styles.signatureImage}
+            />
+          )}
+          <Text style={styles.signatureName}>R.Surendranath</Text>
+          <Text style={styles.signatureDesignation}>JS - Social Welfare Activities</Text>
+        </View>
+
+        {/* Footer (bottom) */}
+        <View style={styles.footerFixed} fixed>
           <Text style={styles.footerLine}>
             If you have any questions about this purchase order, please contact
           </Text>
           <Text style={styles.footerLine}>
-            R.Surendranath, +91 98400 46263, maruvoorhelp@gmail.com
+            +91 98400 46263, maruvoorhelp@gmail.com
           </Text>
         </View>
       </Page>
@@ -385,4 +425,3 @@ const PurchaseOrderPDFDocument: React.FC<PurchaseOrderPDFDocumentProps> = ({
 };
 
 export default PurchaseOrderPDFDocument;
-
