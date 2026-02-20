@@ -1,15 +1,3 @@
-**Sort them based on Standard Operating Procedure**
-
-
-
-Points for Improvement:
-
-- [ ]  Copy all beneficiary with Aadhar in database- make sure all documents are usable for ready next year. - qty 0 are not selected
-- [ ]  Add parent category name while inputing
-- [ ]  figure out Project while inputing(refer last year)
-- [ ]  separate sewing machine with motor
-- [ ]  public and. instn  - update article - cost not happening
-- Inventory - add ordered qty seperately for beneficiary types?
 
 
 **Report for banner:**
@@ -53,9 +41,25 @@ types : ( people who collect at waitinghall, event , already received the cheuqe
 31. have printout of inventory while sorting in waiting hall
 32. Modify code so that if token should be given for slected people (eg: only 5 tokens for flood, accident)
 33. add new column in generated token file, that will tell whom to print labels for chair
-34. while updating inventory, update them specifically for who it is. public or districts or instn etc.
+
+
+**for 2027 - App development:**
+1.   while updating inventory, update them specifically for who it is. public or districts or instn etc.
 36. Add a storage option to upload and view applications for each records
 37. Price and other variable change need to be rflected throughout
 38. Previous Aadhar number database to be updated with district's beneficiary as well (from Fund Request)
-39. Quotation mangement - for 2027
+39. Quotation mangement - 
+40. 1.in FR - aid - when a district is selected - all receipients in the district shuold be added as receipents for easy typing.  or think of a bulk edit option
+2. While public edit , no need for aadhar verification
+3. if article price is updated in article management it should reflect evrywhere
+4. for article , once fund is raised, the final price needs to be updated.   on all records( what if there are multiple prices for same article?)
+5. change FR UI to be simpler.
+6. PO number is generated while clicking the download button. it shoud be serial.
+7. FR bulk upload from csv. - 2027
+8. district data is mixed with other district and application number interchanged, when opened the data entry, the list of articles also appeared there.- fix
+9. in fund request - it shoudl have a draft and submit optopns. so one can work on the form and save it, but not submit it. only after submitting, the fundrequest number will generate and once submitted we cant edit it we can only delete it. just like typical application management.
+11. in article FR, the beneficary should be default to District & Public, but can be edited.
+12. district data is mixed with other district and application number interchanged, when opened the data entry, the list of articles also appeared there.- why?
+
+
 
