@@ -1,0 +1,50 @@
+name: Nightly Exports
+
+on:
+  schedule:
+    # 12:00 AM IST = 18:30 UTC (previous day)
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  export-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: data-entry-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: data-entry-app
+        run: npm ci
+
+      - name: Run nightly exports
+        working-directory: data-entry-app
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_AUTH_MODE: oauth_user
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_TARGET_PATH: My Drive/Makkal Nala Pani 2026/
+          EXPORT_OUTPUT_DIR: ./exports
+          EXPORT_CUTOFF_DATE: 2026-03-02
+        run: node scripts/nightly-exports.mjs
+
+      - name: Upload generated files as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-exports
+          path: data-entry-app/exports/*.csv
+          if-no-files-found: ignore

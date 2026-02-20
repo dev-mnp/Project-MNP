@@ -106,6 +106,37 @@ const FundRequest: React.FC = () => {
     }
   };
 
+  const getLocalDateKey = (dateValue: string) => {
+    const date = new Date(dateValue);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getDisplayType = (fundRequest: FundRequestType) => {
+    return fundRequest.fund_request_type === 'Article'
+      ? 'Article'
+      : (fundRequest.aid_type || 'Aid');
+  };
+
+  const getSearchableText = (fundRequest: FundRequestType) => {
+    const frNumber = fundRequest.fund_request_number || '';
+    const type = getDisplayType(fundRequest);
+    const amount = fundRequest.total_amount || 0;
+    const amountDisplay = amount.toLocaleString();
+    const amountPlain = amount.toString();
+    const dateDisplay = fundRequest.created_at ? new Date(fundRequest.created_at).toLocaleDateString() : '';
+    const dateKey = fundRequest.created_at ? getLocalDateKey(fundRequest.created_at) : '';
+    const supplierName = fundRequest.supplier_name || '';
+    const notes = fundRequest.notes || '';
+    const articleSearchText = fundRequest.article_search_text || '';
+
+    return [frNumber, type, amountDisplay, amountPlain, dateDisplay, dateKey, supplierName, notes, articleSearchText]
+      .join(' ')
+      .toLowerCase();
+  };
+
   const applyFilters = () => {
     let filtered = [...fundRequests];
 
@@ -113,14 +144,14 @@ const FundRequest: React.FC = () => {
     if (startDate) {
       filtered = filtered.filter((fr) => {
         if (!fr.created_at) return false;
-        const frDate = new Date(fr.created_at).toISOString().split('T')[0];
+        const frDate = getLocalDateKey(fr.created_at);
         return frDate >= startDate;
       });
     }
     if (endDate) {
       filtered = filtered.filter((fr) => {
         if (!fr.created_at) return false;
-        const frDate = new Date(fr.created_at).toISOString().split('T')[0];
+        const frDate = getLocalDateKey(fr.created_at);
         return frDate <= endDate;
       });
     }
@@ -129,8 +160,7 @@ const FundRequest: React.FC = () => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (fr) =>
-          fr.fund_request_number.toLowerCase().includes(query)
+        (fr) => getSearchableText(fr).includes(query)
       );
     }
 
@@ -146,8 +176,8 @@ const FundRequest: React.FC = () => {
             bValue = b.fund_request_number || '';
             break;
           case 'type':
-            aValue = a.fund_request_type || '';
-            bValue = b.fund_request_type || '';
+            aValue = getDisplayType(a);
+            bValue = getDisplayType(b);
             break;
           case 'totalAmount':
             aValue = a.total_amount || 0;
@@ -1159,4 +1189,3 @@ const FundRequest: React.FC = () => {
 };
 
 export default FundRequest;
-

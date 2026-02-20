@@ -310,20 +310,33 @@ const MasterEntry: React.FC = () => {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((record) => {
         if (beneficiaryTypeFilter === 'district') {
+          const districtArticleText = (record.selectedArticles || [])
+            .map(article => article.articleName || '')
+            .join(' ')
+            .toLowerCase();
           return (
             record.applicationNumber?.toLowerCase().includes(query) ||
-            record.districtName?.toLowerCase().includes(query)
+            record.districtName?.toLowerCase().includes(query) ||
+            districtArticleText.includes(query)
           );
         } else if (beneficiaryTypeFilter === 'public') {
+          const publicArticleName = getArticleById(record.articleId || '')?.name?.toLowerCase() || '';
           return (
             record.applicationNumber?.toLowerCase().includes(query) ||
             record.name?.toLowerCase().includes(query) ||
-            record.aadharNumber?.toLowerCase().includes(query)
+            record.aadharNumber?.toLowerCase().includes(query) ||
+            record.mobile?.toLowerCase().includes(query) ||
+            publicArticleName.includes(query)
           );
         } else if (beneficiaryTypeFilter === 'institutions') {
+          const institutionArticleText = (record.selectedArticles || [])
+            .map(article => article.articleName || '')
+            .join(' ')
+            .toLowerCase();
           return (
             record.applicationNumber?.toLowerCase().includes(query) ||
-            record.institutionName?.toLowerCase().includes(query)
+            record.institutionName?.toLowerCase().includes(query) ||
+            institutionArticleText.includes(query)
           );
         }
         return false;
@@ -3196,7 +3209,7 @@ const MasterEntry: React.FC = () => {
                           {record.districtName}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                          {record.selectedArticles?.length || 0} article(s), {record.selectedArticles?.reduce((sum, article) => sum + (article.quantity || 0), 0) || 0} quantity
+                          {new Set((record.selectedArticles || []).map(article => article.articleId)).size} item(s), {record.selectedArticles?.reduce((sum, article) => sum + (article.quantity || 0), 0) || 0} quantity
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
@@ -3336,7 +3349,7 @@ const MasterEntry: React.FC = () => {
                           {record.institutionType}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
-                          {record.selectedArticles?.length || 0} article(s)
+                          {new Set((record.selectedArticles || []).map(article => article.articleId)).size} item(s), {record.selectedArticles?.reduce((sum, article) => sum + (article.quantity || 0), 0) || 0} quantity
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 dark:text-white font-medium">
                           {CURRENCY_SYMBOL}{(record.totalAccrued || 0).toLocaleString('en-IN')}
@@ -3439,7 +3452,7 @@ const MasterEntry: React.FC = () => {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {record.selectedArticles.map((article, idx) => (
+                                    {[...record.selectedArticles].sort((a, b) => a.articleName.localeCompare(b.articleName)).map((article, idx) => (
                                       <tr key={idx} className="border-b border-gray-200 dark:border-gray-700">
                                         <td className="px-3 py-2 text-gray-900 dark:text-white">{article.articleName}</td>
                                         <td className="px-3 py-2 text-center text-gray-900 dark:text-white">{article.quantity}</td>
@@ -3578,10 +3591,10 @@ const MasterEntry: React.FC = () => {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={
                     beneficiaryTypeFilter === 'district'
-                      ? 'Search by application number or district name...'
+                      ? 'Search by application number, district name, or article...'
                       : beneficiaryTypeFilter === 'public'
-                      ? 'Search by application number, name, or Aadhar...'
-                      : 'Search by application number or institution name...'
+                      ? 'Search by application number, name, Aadhar, mobile, or article...'
+                      : 'Search by application number, institution name, or article...'
                   }
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                 />

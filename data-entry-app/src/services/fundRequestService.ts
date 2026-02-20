@@ -18,6 +18,7 @@ export interface FundRequest {
   supplier_pincode?: string; // Supplier pincode for Article type fund requests
   purchase_order_number?: string; // Purchase order number in format MASM/MNP00126
   notes?: string;
+  article_search_text?: string; // Derived search index for article names (list view search)
   created_at?: string;
   updated_at?: string;
   created_by?: string;
@@ -337,7 +338,7 @@ export const fetchFundRequests = async (filters?: {
   try {
     let query = supabase
       .from('fund_request')
-      .select('*')
+      .select('*, fund_request_articles(article_name, supplier_article_name)')
       .order('created_at', { ascending: false });
 
     if (filters?.fund_request_type) {
@@ -353,7 +354,11 @@ export const fetchFundRequests = async (filters?: {
     }
 
     if (filters?.end_date) {
-      query = query.lte('created_at', filters.end_date);
+      // Include the full end date by querying records before the next day (exclusive).
+      const endDate = new Date(`${filters.end_date}T00:00:00`);
+      endDate.setDate(endDate.getDate() + 1);
+      const nextDay = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+      query = query.lt('created_at', nextDay);
     }
 
     const { data, error } = await query;
@@ -363,10 +368,21 @@ export const fetchFundRequests = async (filters?: {
       throw error;
     }
 
-    return (data || []).map(item => ({
-      ...item,
-      total_amount: parseFloat(item.total_amount) || 0,
-    }));
+    return (data || []).map(item => {
+      const articleSearchText = (item.fund_request_articles || [])
+        .flatMap((article: { article_name?: string; supplier_article_name?: string }) => [
+          article.article_name || '',
+          article.supplier_article_name || '',
+        ])
+        .join(' ')
+        .trim();
+
+      return {
+        ...item,
+        total_amount: parseFloat(item.total_amount) || 0,
+        article_search_text: articleSearchText,
+      };
+    });
   } catch (error) {
     console.error('Failed to fetch fund requests:', error);
     throw error;
@@ -904,4 +920,3 @@ export const deleteFundRequest = async (id: string): Promise<void> => {
     throw error;
   }
 };
-

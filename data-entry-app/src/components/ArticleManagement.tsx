@@ -199,7 +199,8 @@ const ArticleManagement: React.FC = () => {
       filtered = filtered.filter(
         (article) =>
           article.article_name.toLowerCase().includes(query) ||
-          (article.category && article.category.toLowerCase().includes(query))
+          (article.category && article.category.toLowerCase().includes(query)) ||
+          article.cost_per_unit.toString().toLowerCase().includes(query)
       );
     }
 

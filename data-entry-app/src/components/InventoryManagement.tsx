@@ -187,6 +187,18 @@ const InventoryManagement: React.FC = () => {
             aValue = a.quantityPending || 0;
             bValue = b.quantityPending || 0;
             break;
+          case 'district':
+            aValue = a.breakdown.district || 0;
+            bValue = b.breakdown.district || 0;
+            break;
+          case 'public':
+            aValue = a.breakdown.public || 0;
+            bValue = b.breakdown.public || 0;
+            break;
+          case 'institutions':
+            aValue = a.breakdown.institutions || 0;
+            bValue = b.breakdown.institutions || 0;
+            break;
           default:
             return 0;
         }
@@ -469,19 +481,37 @@ const InventoryManagement: React.FC = () => {
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20"
+                    className="px-4 py-3 text-center text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-blue-50 dark:bg-blue-900/20 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/30 select-none"
+                    onClick={() => handleSort('district')}
                   >
-                    District
+                    <div className="flex items-center justify-center gap-1">
+                      District
+                      <span className={`text-xs ${sortColumn === 'district' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('district')}
+                      </span>
+                    </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-green-700 dark:text-green-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/20"
+                    className="px-4 py-3 text-center text-xs font-medium text-green-700 dark:text-green-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-green-50 dark:bg-green-900/20 cursor-pointer hover:bg-green-100 dark:hover:bg-green-900/30 select-none"
+                    onClick={() => handleSort('public')}
                   >
-                    Public
+                    <div className="flex items-center justify-center gap-1">
+                      Public
+                      <span className={`text-xs ${sortColumn === 'public' ? 'text-green-600 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('public')}
+                      </span>
+                    </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-purple-700 dark:text-purple-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/20"
+                    className="px-4 py-3 text-center text-xs font-medium text-purple-700 dark:text-purple-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/20 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/30 select-none"
+                    onClick={() => handleSort('institutions')}
                   >
-                    Institutions & Others
+                    <div className="flex items-center justify-center gap-1">
+                      Institutions & Others
+                      <span className={`text-xs ${sortColumn === 'institutions' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {getSortIcon('institutions')}
+                      </span>
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -538,4 +568,3 @@ const InventoryManagement: React.FC = () => {
 };
 
 export default InventoryManagement;
-
