@@ -51,6 +51,7 @@ const ArticleManagement: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [masterCategoryFilter, setMasterCategoryFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
   
   // Sorting
@@ -82,6 +83,8 @@ const ArticleManagement: React.FC = () => {
   // Category combobox state
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
+  const [masterCategoryDropdownOpen, setMasterCategoryDropdownOpen] = useState(false);
+  const masterCategoryDropdownRef = useRef<HTMLDivElement>(null);
 
   // Load articles on component mount - only when authenticated and not restoring
   useEffect(() => {
@@ -107,7 +110,7 @@ const ArticleManagement: React.FC = () => {
   // Apply filters when articles or filters change
   useEffect(() => {
     applyFilters();
-  }, [articles, searchQuery, itemTypeFilter, categoryFilter, dateFilter, sortColumn, sortDirection]);
+  }, [articles, searchQuery, itemTypeFilter, categoryFilter, masterCategoryFilter, dateFilter, sortColumn, sortDirection]);
 
   // Close category dropdown when clicking outside
   useEffect(() => {
@@ -115,16 +118,19 @@ const ArticleManagement: React.FC = () => {
       if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
         setCategoryDropdownOpen(false);
       }
+      if (masterCategoryDropdownRef.current && !masterCategoryDropdownRef.current.contains(event.target as Node)) {
+        setMasterCategoryDropdownOpen(false);
+      }
     };
 
-    if (categoryDropdownOpen) {
+    if (categoryDropdownOpen || masterCategoryDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [categoryDropdownOpen]);
+  }, [categoryDropdownOpen, masterCategoryDropdownOpen]);
 
   const loadArticles = async (isRetry: boolean = false) => {
     // Prevent duplicate fetches
@@ -214,6 +220,11 @@ const ArticleManagement: React.FC = () => {
       filtered = filtered.filter((article) => article.category === categoryFilter);
     }
 
+    // Master category filter
+    if (masterCategoryFilter !== 'all') {
+      filtered = filtered.filter((article) => article.master_category === masterCategoryFilter);
+    }
+
     // Date filter
     if (dateFilter.start || dateFilter.end) {
       filtered = filtered.filter((article) => {
@@ -260,6 +271,10 @@ const ArticleManagement: React.FC = () => {
           case 'category':
             aValue = a.category || '';
             bValue = b.category || '';
+            break;
+          case 'masterCategory':
+            aValue = a.master_category || '';
+            bValue = b.master_category || '';
             break;
           case 'createdAt':
             aValue = a.created_at ? new Date(a.created_at).getTime() : 0;
@@ -317,6 +332,14 @@ const ArticleManagement: React.FC = () => {
       articles.map((a) => a.category).filter((c): c is string => Boolean(c))
     );
     return Array.from(categories).sort();
+  };
+
+  // Get unique master categories
+  const getMasterCategories = (): string[] => {
+    const masterCategories = new Set(
+      articles.map((a) => a.master_category).filter((c): c is string => Boolean(c))
+    );
+    return Array.from(masterCategories).sort();
   };
 
   const resetForm = () => {
@@ -426,6 +449,7 @@ const ArticleManagement: React.FC = () => {
     setSearchQuery('');
     setItemTypeFilter('all');
     setCategoryFilter('all');
+    setMasterCategoryFilter('all');
     setDateFilter({ start: null, end: null });
   };
 
@@ -433,6 +457,7 @@ const ArticleManagement: React.FC = () => {
     searchQuery.trim() !== '' ||
     itemTypeFilter !== 'all' ||
     categoryFilter !== 'all' ||
+    masterCategoryFilter !== 'all' ||
     dateFilter.start !== null ||
     dateFilter.end !== null;
 
@@ -656,15 +681,47 @@ const ArticleManagement: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Master Category
               </label>
-              <input
-                type="text"
-                value={formData.master_category}
-                onChange={(e) =>
-                  setFormData({ ...formData, master_category: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Enter master category (optional)"
-              />
+              <div className="relative" ref={masterCategoryDropdownRef}>
+                <input
+                  type="text"
+                  value={formData.master_category}
+                  onChange={(e) => {
+                    setFormData({ ...formData, master_category: e.target.value });
+                    setMasterCategoryDropdownOpen(true);
+                  }}
+                  onFocus={() => setMasterCategoryDropdownOpen(true)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Enter master category (optional)"
+                />
+                {masterCategoryDropdownOpen && getMasterCategories().length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                    {getMasterCategories()
+                      .filter((cat) =>
+                        cat.toLowerCase().includes(formData.master_category.toLowerCase())
+                      )
+                      .map((masterCategory) => (
+                        <button
+                          key={masterCategory}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, master_category: masterCategory });
+                            setMasterCategoryDropdownOpen(false);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          {masterCategory}
+                        </button>
+                      ))}
+                    {getMasterCategories().filter((cat) =>
+                      cat.toLowerCase().includes(formData.master_category.toLowerCase())
+                    ).length === 0 && formData.master_category && (
+                      <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                        No matching master categories. Press Enter to create new.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2 pt-4">
@@ -713,7 +770,7 @@ const ArticleManagement: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 items-end">
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Search
@@ -724,30 +781,30 @@ const ArticleManagement: React.FC = () => {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by name or category..."
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                    placeholder="Search..."
+                    className="w-full pl-10 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                   />
                 </div>
               </div>
-
               <div>
-                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Item Type
-                </label>
-                <select
-                  value={itemTypeFilter}
-                  onChange={(e) => setItemTypeFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                >
-                  <option value="all">All Types</option>
-                  {getItemTypes().map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Item Type
+                  </label>
+                  <select
+                    value={itemTypeFilter}
+                    onChange={(e) => setItemTypeFilter(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                  >
+                    <option value="all">All Types</option>
+                    {getItemTypes().map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Category
@@ -755,7 +812,7 @@ const ArticleManagement: React.FC = () => {
                 <select
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                  className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
                 >
                   <option value="all">All Categories</option>
                   {getCategories().map((category) => (
@@ -765,8 +822,24 @@ const ArticleManagement: React.FC = () => {
                   ))}
                 </select>
               </div>
-
-              <div className="sm:col-span-2 lg:col-span-1">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Master Category
+                </label>
+                <select
+                  value={masterCategoryFilter}
+                  onChange={(e) => setMasterCategoryFilter(e.target.value)}
+                  className="w-full px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                >
+                  <option value="all">All Master Categories</option>
+                  {getMasterCategories().map((masterCategory) => (
+                    <option key={masterCategory} value={masterCategory}>
+                      {masterCategory}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Date Range
                 </label>
@@ -775,7 +848,7 @@ const ArticleManagement: React.FC = () => {
                     type="date"
                     value={dateFilter.start || ''}
                     onChange={(e) => setDateFilter({ ...dateFilter, start: e.target.value || null })}
-                    className="flex-1 min-w-0 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                    className="w-full min-w-0 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
                   />
                   <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">to</span>
                   <input
@@ -783,12 +856,12 @@ const ArticleManagement: React.FC = () => {
                     value={dateFilter.end || ''}
                     onChange={(e) => setDateFilter({ ...dateFilter, end: e.target.value || null })}
                     min={dateFilter.start || undefined}
-                    className="flex-1 min-w-0 px-2 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
+                    className="w-full min-w-0 px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-xs"
                   />
                   {(dateFilter.start || dateFilter.end) && (
                     <button
                       onClick={() => setDateFilter({ start: null, end: null })}
-                      className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
+                      className="p-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex-shrink-0"
                       title="Clear date filter"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -871,8 +944,16 @@ const ArticleManagement: React.FC = () => {
                           </span>
                         </div>
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
-                        Master Category
+                      <th 
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
+                        onClick={() => handleSort('masterCategory')}
+                      >
+                        <div className="flex items-center gap-1">
+                          Master Category
+                          <span className={`text-xs ${sortColumn === 'masterCategory' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                            {getSortIcon('masterCategory')}
+                          </span>
+                        </div>
                       </th>
                       <th 
                         className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 select-none"
