@@ -1925,6 +1925,7 @@ const MasterEntry: React.FC = () => {
               'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
               'Item Type': '',
               'Article Category': '',
+              'Super Category Article': '',
               'Requested Item Tk': '',
               'Comments': '',
             }];
@@ -1947,6 +1948,7 @@ const MasterEntry: React.FC = () => {
               'Beneficiary Type': record.institutionType === 'others' ? 'Others' : 'Institutions',
               'Item Type': articleData?.item_type || '',
               'Article Category': articleData?.category || '',
+              'Super Category Article': articleData?.master_category || '',
               'Requested Item Tk': articleData?.article_name_tk || '',
               'Comments': article.comments || '',
             };
