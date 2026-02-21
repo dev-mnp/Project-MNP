@@ -17,6 +17,7 @@ import Profile from './components/Profile';
 import AuditLogs from './components/AuditLogs';
 import FundRequest from './components/FundRequest';
 import FundRequestForm from './components/FundRequestForm';
+import Phase2HallStageSplit from './components/Phase2HallStageSplit';
 
 // AppLayout component for authenticated routes
 const AppLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -105,6 +106,7 @@ const AppContent: React.FC = () => {
                 <Route path="/fund-request" element={<FundRequest />} />
                 <Route path="/fund-request/new" element={<FundRequestForm />} />
                 <Route path="/fund-request/edit/:id" element={<FundRequestForm />} />
+                <Route path="/seat-allocation" element={<Phase2HallStageSplit />} />
                 <Route path="/user-management" element={<UserManagement />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/audit-logs" element={<AuditLogs />} />

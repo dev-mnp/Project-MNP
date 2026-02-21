@@ -33,6 +33,7 @@
    adds Aid and Project Type which must be linked exactly to specific records and Article Type which can be linked generally, 
    and generates a separate fundraising PDF, with both order and fundraising outputs automatically updating the Order 
    Overview status based on computed required, ordered and funded values from Supabase-backed relational tables.
+
 5. Waiting Hall Quantity vs Stage Quantity
       - After communicating with the Beneficiaries these values are decided
       - How many do they collect at Waiting Hall in Bulk vs How many they collect at the Stage

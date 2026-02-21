@@ -1937,7 +1937,7 @@ const MasterEntry: React.FC = () => {
               'Beneficiary Name': record.institutionName || '',
               'Requested Item': article.articleName || '',
               'Quantity': article.quantity || 0,
-              'Cost Per Unit': articleData?.cost_per_unit || 0,
+              'Cost Per Unit': article.costPerUnit || articleData?.cost_per_unit || (article.quantity > 0 ? (article.totalValue / article.quantity) : 0),
               'Total Value': article.totalValue || 0,
               'Address': record.address || '',
               'Mobile': record.mobile || '',

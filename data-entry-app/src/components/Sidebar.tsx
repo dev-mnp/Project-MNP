@@ -16,6 +16,7 @@ import {
   Users,
   ClipboardList,
   DollarSign,
+  CalendarCheck2,
 } from 'lucide-react';
 import { useRBAC } from '../contexts/RBACContext';
 
@@ -40,7 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const menuItems = [
+  const phase1Items = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { id: 'master-entry', label: 'Master Entry', icon: FileText, path: '/master-entry' },
     { id: 'article-management', label: 'Article Management', icon: Package, path: '/article-management' },
@@ -48,15 +49,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'fund-request', label: 'Fund Request', icon: DollarSign, path: '/fund-request' },
   ];
 
-  // Add user management for admin only
-  if (isAdmin) {
-    menuItems.push({ id: 'user-management', label: 'User Management', icon: Users, path: '/user-management' });
-  }
+  const phase2Items = [
+    { id: 'seat-allocation', label: 'Seat Allocation', icon: CalendarCheck2, path: '/seat-allocation' },
+  ];
 
-  // Add audit logs for admin only
-  if (isAdmin) {
-    menuItems.push({ id: 'audit-logs', label: 'Audit Logs', icon: ClipboardList, path: '/audit-logs' });
-  }
+  const adminItems = isAdmin
+    ? [
+        { id: 'user-management', label: 'User Management', icon: Users, path: '/user-management' },
+        { id: 'audit-logs', label: 'Audit Logs', icon: ClipboardList, path: '/audit-logs' },
+      ]
+    : [];
 
   const toggleSidebar = () => {
     setCollapsed(!collapsed);
@@ -119,70 +121,78 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           {/* Navigation Menu */}
-          <div className="flex-1 py-4">
-            <Menu
-              menuItemStyles={{
-                button: ({ level, active }) => {
-                  if (level === 0) {
-                    return {
-                      color: active ? '#ffffff' : 'var(--text-primary)',
-                      backgroundColor: active ? '#3b82f6' : 'transparent',
-                      margin: collapsed ? '0 8px' : '0 16px',
-                      borderRadius: '8px',
-                      padding: collapsed ? '12px' : '12px 16px',
-                      justifyContent: collapsed ? 'center' : 'flex-start',
-                      fontWeight: active ? '600' : '500',
-                      fontSize: '14px',
-                      '&:hover': {
-                        backgroundColor: active ? '#2563eb' : 'var(--bg-tertiary)',
-                        color: active ? '#ffffff' : 'var(--text-primary)',
+          <div className="flex-1 py-4 overflow-y-auto">
+            {[
+              { key: 'phase1', items: phase1Items },
+              { key: 'phase2', items: phase2Items },
+              { key: 'admin', items: adminItems },
+            ]
+              .filter((section) => section.items.length > 0)
+              .map((section, sectionIndex, sections) => (
+                <div key={section.key} className="mb-2">
+                  <Menu
+                    menuItemStyles={{
+                      button: ({ level, active }) => {
+                        if (level === 0) {
+                          return {
+                            color: active ? '#ffffff' : 'var(--text-primary)',
+                            backgroundColor: active ? '#3b82f6' : 'transparent',
+                            margin: collapsed ? '0 8px' : '0 16px',
+                            borderRadius: '8px',
+                            padding: collapsed ? '12px' : '12px 16px',
+                            justifyContent: collapsed ? 'center' : 'flex-start',
+                            fontWeight: active ? '600' : '500',
+                            fontSize: '14px',
+                            '&:hover': {
+                              backgroundColor: active ? '#2563eb' : 'var(--bg-tertiary)',
+                              color: active ? '#ffffff' : 'var(--text-primary)',
+                            },
+                          };
+                        }
                       },
-                    };
-                  }
-                },
-                icon: ({ active }) => ({
-                  color: active ? '#ffffff' : 'var(--text-secondary)',
-                  marginRight: collapsed ? '0' : '12px',
-                  width: '20px',
-                  height: '20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }),
-                label: ({ active }) => ({
-                  fontWeight: '500',
-                  color: active ? '#ffffff' : 'var(--text-primary)',
-                }),
-              }}
-            >
-              {menuItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = location.pathname === item.path || 
-                                 location.pathname.startsWith(item.path + '/');
-                
-                return (
-                  <div
-                    key={item.id}
-                    className={`relative ${collapsed ? 'group' : ''}`}
-                    title={collapsed ? item.label : ''}
+                      icon: ({ active }) => ({
+                        color: active ? '#ffffff' : 'var(--text-secondary)',
+                        marginRight: collapsed ? '0' : '12px',
+                        width: '20px',
+                        height: '20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }),
+                      label: ({ active }) => ({
+                        fontWeight: '500',
+                        color: active ? '#ffffff' : 'var(--text-primary)',
+                      }),
+                    }}
                   >
-                    <MenuItem
-                      icon={<Icon className="w-5 h-5" />}
-                      active={isActive}
-                      onClick={() => handleMenuItemClick(item.path)}
-                    >
-                      {!collapsed && item.label}
-                    </MenuItem>
-                    {collapsed && (
-                      <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white dark:text-gray-100 text-sm rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-50 whitespace-nowrap">
-                        {item.label}
-                        <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-900 dark:border-r-gray-700"></div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </Menu>
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`relative ${collapsed ? 'group' : ''}`}
+                          title={collapsed ? item.label : ''}
+                        >
+                          <MenuItem icon={<Icon className="w-5 h-5" />} active={isActive} onClick={() => handleMenuItemClick(item.path)}>
+                            {!collapsed && item.label}
+                          </MenuItem>
+                          {collapsed && (
+                            <div className="absolute left-full ml-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white dark:text-gray-100 text-sm rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none z-50 whitespace-nowrap">
+                              {item.label}
+                              <div className="absolute right-full top-1/2 transform -translate-y-1/2 border-4 border-transparent border-r-gray-900 dark:border-r-gray-700"></div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </Menu>
+                  {sectionIndex < sections.length - 1 && (
+                    <div className={`mt-2 border-b border-gray-200 dark:border-gray-700 ${collapsed ? 'mx-3' : 'mx-4'}`} />
+                  )}
+                </div>
+              ))}
           </div>
         </div>
       </ProSidebar>
