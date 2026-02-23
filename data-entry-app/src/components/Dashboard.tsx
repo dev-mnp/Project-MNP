@@ -11,6 +11,11 @@ type DashboardMetrics = {
     totalBeneficiaries: number;
     totalAllottedFund: number;
     totalValueAccrued: number;
+    underUtilizedDistrictCount: number;
+    underUtilizedValue: number;
+    overUtilizedDistrictCount: number;
+    overUtilizedValue: number;
+    netVariance: number;
   };
   districtUtilization: {
     id: string;
@@ -50,6 +55,8 @@ type DashboardMetrics = {
     totalArticlesQty: number;
     uniqueArticles: number;
     totalValueAccrued: number;
+    actualTotalValueAccrued: number;
+    districtVariance: number;
   };
   fundRequests: {
     count: number;
@@ -60,6 +67,7 @@ type DashboardMetrics = {
 };
 
 const Dashboard: React.FC = () => {
+  const OVERALL_EVENT_BUDGET = 35000000;
   const { user } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -177,7 +185,7 @@ const Dashboard: React.FC = () => {
         const overallArticlesQty = districtArticlesQty + publicArticlesQty + institutionsArticlesQty;
         const overallBeneficiaries =
           districtArticlesQty + publicArticlesQty + institutionsApplications.size;
-        const overallValueAccrued =
+        const overallActualValueAccrued =
           districtValueAccrued + publicValueAccrued + institutionsValueAccrued;
 
         let fundRequestTotalValue = 0;
@@ -194,12 +202,34 @@ const Dashboard: React.FC = () => {
           (sum, district) => sum + Number(district.allotted_budget || 0),
           0
         );
+        const districtVariance = districtValueAccrued - totalAllottedFund;
+        const overallPlanningValueAccrued =
+          totalAllottedFund + publicValueAccrued + institutionsValueAccrued;
 
         const districtSpendMap = new Map<string, number>();
         districtEntries.forEach((entry) => {
           if (!entry.district_id) return;
           const current = districtSpendMap.get(entry.district_id) || 0;
           districtSpendMap.set(entry.district_id, current + Number(entry.total_amount || 0));
+        });
+
+        let underUtilizedDistrictCount = 0;
+        let underUtilizedValue = 0;
+        let overUtilizedDistrictCount = 0;
+        let overUtilizedValue = 0;
+
+        districtMaster.forEach((district) => {
+          const allotted = Number(district.allotted_budget || 0);
+          const used = districtSpendMap.get(district.id) || 0;
+          const delta = used - allotted;
+
+          if (delta > 0) {
+            overUtilizedDistrictCount += 1;
+            overUtilizedValue += delta;
+          } else if (delta < 0) {
+            underUtilizedDistrictCount += 1;
+            underUtilizedValue += Math.abs(delta);
+          }
         });
 
         const districtUtilization = districtMaster
@@ -229,6 +259,11 @@ const Dashboard: React.FC = () => {
             totalBeneficiaries: districtEntries.length,
             totalAllottedFund,
             totalValueAccrued: districtValueAccrued,
+            underUtilizedDistrictCount,
+            underUtilizedValue,
+            overUtilizedDistrictCount,
+            overUtilizedValue,
+            netVariance: districtVariance,
           },
           districtUtilization,
           public: {
@@ -251,7 +286,9 @@ const Dashboard: React.FC = () => {
             totalBeneficiaries: overallBeneficiaries,
             totalArticlesQty: overallArticlesQty,
             uniqueArticles: overallArticleIds.size,
-            totalValueAccrued: overallValueAccrued,
+            totalValueAccrued: overallPlanningValueAccrued,
+            actualTotalValueAccrued: overallActualValueAccrued,
+            districtVariance,
           },
           fundRequests: {
             count: fundRequestResult.count || 0,
@@ -284,6 +321,11 @@ const Dashboard: React.FC = () => {
 
   const renderValue = (value: number) => numberFormat.format(value);
   const renderCurrency = (value: number) => `Rs. ${currencyFormat.format(value)}`;
+  const renderCurrencySigned = (value: number) =>
+    `${value >= 0 ? '+' : '-'} Rs. ${currencyFormat.format(Math.abs(value))}`;
+  const renderContributionValue = (value: number) =>
+    `${value >= 0 ? '+' : '-'} Rs. ${currencyFormat.format(Math.abs(value))}`;
+  const balanceToAllot = metrics ? OVERALL_EVENT_BUDGET - metrics.overall.totalValueAccrued : 0;
 
   return (
     <div className="dashboard-root">
@@ -329,6 +371,42 @@ const Dashboard: React.FC = () => {
           letter-spacing: 0.2px;
         }
 
+        .hero-top-capsule {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          border-radius: 999px;
+          border: 1px solid rgba(26, 102, 255, 0.15);
+          background: rgba(26, 102, 255, 0.06);
+          padding: 10px 14px;
+          margin-bottom: 10px;
+          flex-wrap: wrap;
+        }
+
+        .hero-top-left {
+          display: flex;
+          align-items: baseline;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .hero-top-title {
+          font-family: 'Fraunces', serif;
+          font-size: 24px;
+          font-weight: 700;
+          line-height: 1.2;
+          color: #1b1b1f;
+          white-space: nowrap;
+        }
+
+        .hero-top-welcome {
+          color: #4a4f5a;
+          font-size: 14px;
+          font-weight: 500;
+          white-space: nowrap;
+        }
+
         .hero-sub {
           color: #4a4f5a;
           font-size: 14px;
@@ -350,7 +428,7 @@ const Dashboard: React.FC = () => {
 
         .hero-stats {
           display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 14px;
         }
 
@@ -419,6 +497,10 @@ const Dashboard: React.FC = () => {
           gap: 16px;
         }
 
+        .district-row-2 {
+          grid-template-columns: minmax(190px, 0.28fr) minmax(360px, 1.27fr) minmax(240px, 0.45fr) !important;
+        }
+
         .stat-card {
           background: #ffffff;
           border-radius: 16px;
@@ -428,6 +510,10 @@ const Dashboard: React.FC = () => {
           display: flex;
           flex-direction: column;
           justify-content: space-between;
+        }
+
+        .stat-card.align-top {
+          justify-content: flex-start;
         }
 
         .stat-card.list-card {
@@ -510,6 +596,21 @@ const Dashboard: React.FC = () => {
           color: #1b1b1f;
           margin-top: 8px;
           line-height: 1.2;
+        }
+
+        .variance-value {
+          font-size: 20px;
+          font-weight: 600;
+          color: #1b1b1f;
+          line-height: 1.2;
+        }
+
+        .variance-value-under {
+          color: #15803d;
+        }
+
+        .variance-value-over {
+          color: #dc2626;
         }
 
         .stat-muted {
@@ -616,32 +717,78 @@ const Dashboard: React.FC = () => {
           }
 
           .hero-stats {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .hero-top-left {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+          }
+
+          .hero-top-title,
+          .hero-top-welcome {
+            white-space: normal;
           }
 
           .dashboard-root {
             padding: 24px 16px 64px;
           }
+
+          .district-row-2 {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
+        @media (max-width: 520px) {
+          .hero-stats {
+            grid-template-columns: 1fr;
+          }
         }
       `}</style>
       <div className="dashboard-shell">
-        <div className="hero">
-          <div>
-            <h1 className="hero-title">Makkal Nala Pani 2026</h1>
-            <p className="hero-sub">
-              Welcome back, {user?.name || user?.email || 'User'}.
-            </p>
-            <div className="hero-chip">All-time metrics • Live snapshot</div>
+        <div className="hero-top-capsule">
+          <div className="hero-top-left">
+            <div className="hero-top-title">Makkal Nala Pani 2026</div>
+            <div className="hero-top-welcome">Welcome back, {user?.name || user?.email || 'User'}.</div>
           </div>
+          <div className="hero-chip" style={{ marginTop: 0 }}>All-time metrics • Live snapshot</div>
+        </div>
+
+        <div className="hero">
           <div className="hero-stats">
-            <div className="hero-card">
-              <div className="hero-card-title">Total Value Accrued</div>
+            <div className="hero-card" style={{ background: '#ffe3bf', color: '#4a2c14' }}>
+              <div className="hero-card-title">Event Budget</div>
+              <div className="hero-card-value">
+                {renderCurrency(OVERALL_EVENT_BUDGET)}
+              </div>
+            </div>
+            <div className="hero-card" style={{ background: '#d6f5df', color: '#1f3d2a' }}>
+              <div className="hero-card-title">Total Accrued</div>
+              <div className="hero-card-value">
+                {metrics ? renderCurrency(metrics.overall.actualTotalValueAccrued) : '—'}
+              </div>
+              <div className="stat-muted" style={{ marginTop: 6 }}>
+                <strong>{metrics ? renderContributionValue(metrics.overall.districtVariance) : '—'}</strong> (District Contribution)
+              </div>
+            </div>
+            <div className="hero-card" style={{ background: '#e9d5ff', color: '#3b1f5e' }}>
+              <div className="hero-card-title">Planning Total</div>
               <div className="hero-card-value">
                 {metrics ? renderCurrency(metrics.overall.totalValueAccrued) : '—'}
               </div>
+              <div className="stat-muted" style={{ marginTop: 6 }}>
+                <strong>{metrics ? renderContributionValue(-metrics.overall.districtVariance) : '—'}</strong> (District Contribution)
+              </div>
             </div>
-            <div className="hero-card" style={{ background: '#f59fba', color: '#2d0c1a' }}>
-              <div className="hero-card-title">Total Fund Raised</div>
+            <div className="hero-card" style={{ background: '#d8ecff', color: '#163250' }}>
+              <div className="hero-card-title">Balance (can Spend)</div>
+              <div className="hero-card-value">
+                {metrics ? renderCurrency(balanceToAllot) : '—'}
+              </div>
+            </div>
+            <div className="hero-card" style={{ background: '#fecdd3', color: '#4a1f29' }}>
+              <div className="hero-card-title">Fund Raised</div>
               <div className="hero-card-value">
                 {metrics ? renderCurrency(metrics.fundRequests.totalValue) : '—'}
               </div>
@@ -667,7 +814,7 @@ const Dashboard: React.FC = () => {
               <h2 className="section-title">
                 <span /> District
               </h2>
-              <div className="stat-grid">
+              <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(220px, 1fr))' }}>
                 <StatCard title="Districts Received" value={renderValue(metrics.district.districtsReceived)} />
                 <StatCard title="Districts Pending" value={renderValue(metrics.district.districtsPending)} />
                 <StatCard
@@ -678,11 +825,44 @@ const Dashboard: React.FC = () => {
                   title="Total Beneficiaries"
                   value={renderValue(metrics.district.totalArticlesQty)}
                 />
-                <StatCard title="Total Allotted Fund" value={renderCurrency(metrics.district.totalAllottedFund)} />
-                <StatCard title="Total Value Accrued" value={renderCurrency(metrics.district.totalValueAccrued)} />
               </div>
-              <div className="stat-grid" style={{ marginTop: 16 }}>
-                <div className="stat-card list-card">
+              <div className="stat-grid district-row-2" style={{ marginTop: 16 }}>
+                <StatCard title="Total Allotted" value={renderCurrency(metrics.district.totalAllottedFund)} alignTop />
+                <div className="stat-card list-card align-top">
+                  <div className="stat-lines" style={{ marginTop: 4, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+                    <div className="stat-line">
+                      <div className="stat-line-label">Underutilized</div>
+                      <div className="variance-value variance-value-under" style={{ marginTop: 6 }}>
+                        {renderCurrency(metrics.district.underUtilizedValue)}
+                      </div>
+                      <div className="stat-muted" style={{ marginTop: 2 }}>
+                        {renderValue(metrics.district.underUtilizedDistrictCount)} districts
+                      </div>
+                    </div>
+                    <div className="stat-line">
+                      <div className="stat-line-label">Overutilized</div>
+                      <div className="variance-value variance-value-over" style={{ marginTop: 6 }}>
+                        {renderCurrency(metrics.district.overUtilizedValue)}
+                      </div>
+                      <div className="stat-muted" style={{ marginTop: 2 }}>
+                        {renderValue(metrics.district.overUtilizedDistrictCount)} districts
+                      </div>
+                    </div>
+                    <div className="stat-line">
+                      <div className="stat-line-label">Net (Over - Under)</div>
+                      <div className="variance-value" style={{ marginTop: 2 }}>
+                        {renderCurrencySigned(metrics.district.netVariance)}
+                      </div>
+                      <div className="stat-muted" style={{ marginTop: 2, visibility: 'hidden' }}>
+                        0 districts
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <StatCard title="Total Accrued" value={renderCurrency(metrics.district.totalValueAccrued)} alignTop />
+              </div>
+              <div className="stat-grid" style={{ marginTop: 16, gridTemplateColumns: '1fr' }}>
+                <div className="stat-card list-card align-top">
                   <div className="stat-label">Pending Districts (Names)</div>
                   {metrics.pendingDistricts.length ? (
                     <details className="pending-dropdown">
@@ -779,7 +959,6 @@ const Dashboard: React.FC = () => {
                   title="Total Article Quantity"
                   value={renderValue(metrics.overall.totalArticlesQty)}
                 />
-                <StatCard title="Total Value Accrued" value={renderCurrency(metrics.overall.totalValueAccrued)} />
             </div>
           </>
         )}
@@ -788,8 +967,8 @@ const Dashboard: React.FC = () => {
   );
 };
 
-const StatCard: React.FC<{ title: string; value: string }> = ({ title, value }) => (
-  <div className="stat-card">
+const StatCard: React.FC<{ title: string; value: string; alignTop?: boolean }> = ({ title, value, alignTop = false }) => (
+  <div className={`stat-card${alignTop ? ' align-top' : ''}`}>
     <div className="stat-label">{title}</div>
     <div className="stat-value">{value}</div>
   </div>
