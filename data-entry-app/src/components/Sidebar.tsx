@@ -17,6 +17,7 @@ import {
   ClipboardList,
   DollarSign,
   CalendarCheck2,
+  ListOrdered,
 } from 'lucide-react';
 import { useRBAC } from '../contexts/RBACContext';
 
@@ -51,6 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const phase2Items = [
     { id: 'seat-allocation', label: 'Seat Allocation', icon: CalendarCheck2, path: '/seat-allocation' },
+    { id: 'sequence-list', label: 'Sequence List', icon: ListOrdered, path: '/sequence-list' },
   ];
 
   const adminItems = isAdmin

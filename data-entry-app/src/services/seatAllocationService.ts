@@ -39,6 +39,12 @@ export interface SeatAllocationUploadRow {
   sort_order?: number;
 }
 
+export interface SeatAllocationSequenceUpdateRow {
+  id: string;
+  master_row: Record<string, any>;
+  master_headers: string[];
+}
+
 export const fetchSeatAllocationSessions = async (): Promise<string[]> => {
   const rows = await withTimeoutAndRetry(async () => {
     const { data, error } = await supabase
@@ -157,4 +163,29 @@ export const updateSeatAllocationRowQuantities = async (
     if (error) throw error;
     return true;
   }, 1, 10000);
+};
+
+export const updateSeatAllocationSequenceData = async (
+  rows: SeatAllocationSequenceUpdateRow[]
+): Promise<void> => {
+  if (!rows.length) return;
+
+  const payload = rows.map((row) => ({
+    id: row.id,
+    master_row: row.master_row,
+    master_headers: row.master_headers,
+    updated_by: null,
+  }));
+
+  const batchSize = 250;
+  for (let i = 0; i < payload.length; i += batchSize) {
+    const batch = payload.slice(i, i + batchSize);
+    await withTimeoutAndRetry(async () => {
+      const { error } = await supabase
+        .from('seat_allocation')
+        .upsert(batch, { onConflict: 'id' });
+      if (error) throw error;
+      return true;
+    }, 1, 30000);
+  }
 };

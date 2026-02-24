@@ -67,7 +67,7 @@ type DashboardMetrics = {
 };
 
 const Dashboard: React.FC = () => {
-  const OVERALL_EVENT_BUDGET = 35000000;
+  const OVERALL_EVENT_BUDGET = 37500000;
   const { user } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -822,7 +822,7 @@ const Dashboard: React.FC = () => {
                   value={renderValue(metrics.district.uniqueArticles)}
                 />
                 <StatCard
-                  title="Total Beneficiaries"
+                  title="Total Beneficiary & Article Quantity"
                   value={renderValue(metrics.district.totalArticlesQty)}
                 />
               </div>
@@ -888,7 +888,7 @@ const Dashboard: React.FC = () => {
                 <span /> Public
               </h2>
               <div className="stat-grid">
-                <StatCard title="Beneficiaries" value={renderValue(metrics.public.totalBeneficiaries)} />
+                <StatCard title="TOTAL BENEFICIARY & ARTICLE QUANTITY" value={renderValue(metrics.public.totalBeneficiaries)} />
                 <StatListCard
                   title="Gender Split"
                   items={[
@@ -908,7 +908,7 @@ const Dashboard: React.FC = () => {
                 />
                 <StatCard title="Total Handicapped" value={renderValue(metrics.public.handicapped)} />
                 <StatCard
-                  title="Articles"
+                  title="Article"
                   value={renderValue(metrics.public.uniqueArticles)}
                 />
                 <StatCard title="Total Value Accrued" value={renderCurrency(metrics.public.totalValueAccrued)} />
