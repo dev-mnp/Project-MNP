@@ -15,14 +15,15 @@ export interface BeneficiaryDropdownOption {
 /**
  * Fetch used beneficiaries from saved fund requests
  * Returns a Set of identifiers that have been used in fund requests
- * For District and Institutions entries: returns the full display_text (since we match by display_text)
+ * For District entries: returns full display_text
+ * For Institutions entries: returns stable key "app_no::aid_name"
  * For other types: returns the application_number extracted from display text
  */
 export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?: string): Promise<Set<string>> => {
   try {
     let query = supabase
       .from('fund_request_recipients')
-      .select('beneficiary, beneficiary_type')
+      .select('beneficiary, beneficiary_type, fund_request_id')
       .not('beneficiary', 'is', null);
 
     // Exclude current fund request if editing
@@ -49,17 +50,70 @@ export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?
       return new Set();
     }
 
+    // Build a map of fund_request_id -> aid_type for reliable institution keying
+    const fundRequestIds = Array.from(
+      new Set(
+        (data || [])
+          .map((entry: any) => String(entry.fund_request_id || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    const aidTypeByFundRequestId = new Map<string, string>();
+    if (fundRequestIds.length > 0) {
+      const { data: fundRequestRows, error: fundRequestError } = await supabase
+        .from('fund_request')
+        .select('id, aid_type')
+        .in('id', fundRequestIds);
+
+      if (fundRequestError) {
+        console.error('Error fetching fund requests for used-beneficiary mapping:', fundRequestError);
+      } else {
+        (fundRequestRows || []).forEach((row: any) => {
+          const id = String(row.id || '').trim();
+          const aidType = String(row.aid_type || '').trim().toLowerCase();
+          if (id && aidType) {
+            aidTypeByFundRequestId.set(id, aidType);
+          }
+        });
+      }
+    }
+
     // Extract identifiers from beneficiary display text
-    // For District/Institutions: use full display_text
+    // For District: use full display_text
+    // For Institutions: use stable key app_no::aid_name
     // For others: extract application_number from display text
     const usedIdentifiers = new Set<string>();
     
     data.forEach((entry: any) => {
       if (entry.beneficiary) {
-        if (entry.beneficiary_type === 'District' || entry.beneficiary_type === 'Institutions') {
-          // For district/institution entries, use the full display_text as identifier
-          // This matches how we filter in loadBeneficiaries
+        if (entry.beneficiary_type === 'District') {
+          // For district entries, use full display_text
           usedIdentifiers.add(entry.beneficiary);
+        } else if (entry.beneficiary_type === 'Institutions') {
+          // For institution entries, build stable key: app_no::aid_name
+          const beneficiaryText = String(entry.beneficiary || '').trim();
+          if (beneficiaryText.includes('::')) {
+            usedIdentifiers.add(beneficiaryText.toLowerCase());
+            return;
+          }
+          const parts = beneficiaryText.split(' - ');
+          const appNo = (parts[0] || '').trim().toLowerCase();
+          const aidFromBeneficiary = (parts[1] || '').trim().toLowerCase();
+          const fundRequestId = String(entry.fund_request_id || '').trim();
+          const aidFromFundRequest = fundRequestId ? (aidTypeByFundRequestId.get(fundRequestId) || '') : '';
+
+          // Prefer aid_type from linked fund request because beneficiary middle text
+          // can be institution name in older saved records.
+          if (appNo && aidFromFundRequest) {
+            usedIdentifiers.add(`${appNo}::${aidFromFundRequest}`);
+          } else if (appNo && aidFromBeneficiary) {
+            usedIdentifiers.add(`${appNo}::${aidFromBeneficiary}`);
+          } else {
+            // Fallback for malformed legacy records
+            const match = beneficiaryText.match(/^([^-]+)/);
+            if (match) usedIdentifiers.add(match[1].trim());
+          }
         } else {
           // For other types, extract application number from display text
           // Format: "application_number - name - ₹ amount"

@@ -533,7 +533,7 @@ const InventoryManagement: React.FC = () => {
                       <td className="px-4 py-3 text-sm text-center text-blue-600 dark:text-blue-400 font-semibold">
                         {article.quantityOrdered?.toLocaleString('en-IN') || 0}
                       </td>
-                      <td className={`px-4 py-3 text-sm text-center font-semibold ${pending > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                      <td className={`px-4 py-3 text-sm text-center font-semibold ${pending > 0 ? 'text-red-600 dark:text-red-400' : pending < 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
                         {pending.toLocaleString('en-IN')}
                       </td>
                       <td className="px-4 py-3 text-sm text-center text-blue-600 dark:text-blue-400 font-semibold bg-blue-50 dark:bg-blue-900/20">

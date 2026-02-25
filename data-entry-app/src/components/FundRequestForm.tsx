@@ -38,6 +38,29 @@ interface RecipientFormData extends Omit<FundRequestRecipient, 'id' | 'fund_requ
   selectedDistrictId?: string;
 }
 
+const getAppNumberFromDisplay = (value: string): string => {
+  const match = value.match(/^([^-]+)/);
+  return match ? match[1].trim() : '';
+};
+
+const getInstitutionAidKey = (value: string): string => {
+  const parts = value.split(' - ');
+  const appNo = (parts[0] || '').trim().toLowerCase();
+  const aidName = (parts[1] || '').trim().toLowerCase();
+  if (appNo && aidName) return `${appNo}::${aidName}`;
+  return value.trim().toLowerCase();
+};
+
+const getTrackingKey = (
+  type: 'District' | 'Public' | 'Institutions' | 'Others' | undefined,
+  displayValue: string
+): string => {
+  if (!displayValue) return '';
+  if (type === 'District') return displayValue;
+  if (type === 'Institutions') return getInstitutionAidKey(displayValue);
+  return getAppNumberFromDisplay(displayValue);
+};
+
 const FundRequestForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -58,7 +81,7 @@ const FundRequestForm: React.FC = () => {
   // Recipients (for Aid)
   const [recipients, setRecipients] = useState<RecipientFormData[]>([]);
 
-  // Track selected beneficiaries in current session (by application_number)
+  // Track selected beneficiaries in current session (key varies by type)
   const [selectedBeneficiaries, setSelectedBeneficiaries] = useState<Set<string>>(new Set());
 
   // Track used beneficiaries from saved fund requests
@@ -563,15 +586,12 @@ const FundRequestForm: React.FC = () => {
         const currentSelection = currentRecipient?.beneficiary;
         let currentIdentifier: string | null = null;
         if (currentSelection) {
-          // For district/institutions beneficiaries, use the display_text directly
+          // For district beneficiaries use display text, institutions use app+aid key
           // For other types, extract app number from display text
           if (type === 'District' || type === 'Institutions') {
-            currentIdentifier = currentSelection; // Use display_text directly for district/institutions
+            currentIdentifier = getTrackingKey(type, currentSelection);
           } else {
-            const match = currentSelection.match(/^([^-]+)/);
-            if (match) {
-              currentIdentifier = match[1].trim();
-            }
+            currentIdentifier = getTrackingKey(type, currentSelection);
           }
         }
         
@@ -581,16 +601,21 @@ const FundRequestForm: React.FC = () => {
           allExcluded.delete(currentIdentifier);
         }
         
-        // For district/institutions entries, filter by display_text
+        // For district entries, filter by display_text
+        // For institutions entries, filter by app+aid key
         // For other types, filter by application_number
         const filteredData = beneficiaryCache[type]!.filter(option => {
-          if (type === 'District' || type === 'Institutions') {
-            // For district/institutions, check if the display_text is in the excluded set
+          if (type === 'District') {
             return !allExcluded.has(option.display_text);
-          } else {
-            // For other types, check if the application_number is in the excluded set
-            return !allExcluded.has(option.application_number);
           }
+          if (type === 'Institutions') {
+            const excludedInstitutionAidKeys = new Set(
+              Array.from(allExcluded).map((value) => getInstitutionAidKey(value))
+            );
+            return !excludedInstitutionAidKeys.has(getInstitutionAidKey(option.display_text));
+          }
+          // For public/others, check if the application_number is in the excluded set
+          return !allExcluded.has(option.application_number);
         });
         
         const updated = [...prev];
@@ -646,15 +671,12 @@ const FundRequestForm: React.FC = () => {
         const currentSelection = currentRecipient?.beneficiary;
         let currentIdentifier: string | null = null;
         if (currentSelection) {
-          // For district/institutions beneficiaries, use the display_text directly
+          // For district beneficiaries use display text, institutions use app+aid key
           // For other types, extract app number from display text
           if (type === 'District' || type === 'Institutions') {
-            currentIdentifier = currentSelection; // Use display_text directly for district/institutions
+            currentIdentifier = getTrackingKey(type, currentSelection);
           } else {
-            const match = currentSelection.match(/^([^-]+)/);
-            if (match) {
-              currentIdentifier = match[1].trim();
-            }
+            currentIdentifier = getTrackingKey(type, currentSelection);
           }
         }
         
@@ -665,16 +687,21 @@ const FundRequestForm: React.FC = () => {
           allExcluded.delete(currentIdentifier);
         }
         
-        // For district/institutions entries, filter by display_text
+        // For district entries, filter by display_text
+        // For institutions entries, filter by app+aid key
         // For other types, filter by application_number
         const filteredData = data.filter(option => {
-          if (type === 'District' || type === 'Institutions') {
-            // For district/institutions, check if the display_text is in the excluded set
+          if (type === 'District') {
             return !allExcluded.has(option.display_text);
-          } else {
-            // For other types, check if the application_number is in the excluded set
-            return !allExcluded.has(option.application_number);
           }
+          if (type === 'Institutions') {
+            const excludedInstitutionAidKeys = new Set(
+              Array.from(allExcluded).map((value) => getInstitutionAidKey(value))
+            );
+            return !excludedInstitutionAidKeys.has(getInstitutionAidKey(option.display_text));
+          }
+          // For public/others, check if the application_number is in the excluded set
+          return !allExcluded.has(option.application_number);
         });
 
         const updated = [...prev];
@@ -967,16 +994,16 @@ const FundRequestForm: React.FC = () => {
       if (recipientToRemove.beneficiaryType === 'District' || recipientToRemove.beneficiaryType === 'Institutions') {
         setSelectedBeneficiaries(prev => {
           const updated = new Set(prev);
-          updated.delete(recipientToRemove.beneficiary!);
+          const key = getTrackingKey(recipientToRemove.beneficiaryType, recipientToRemove.beneficiary!);
+          if (key) updated.delete(key);
           return updated;
         });
       } else {
-        // Extract application_number from beneficiary display text
-        const appNumberMatch = recipientToRemove.beneficiary.match(/^([^-]+)/);
-        if (appNumberMatch) {
+        const key = getTrackingKey(recipientToRemove.beneficiaryType, recipientToRemove.beneficiary);
+        if (key) {
           setSelectedBeneficiaries(prev => {
             const updated = new Set(prev);
-            updated.delete(appNumberMatch[1].trim());
+            updated.delete(key);
             return updated;
           });
         }
@@ -998,16 +1025,14 @@ const FundRequestForm: React.FC = () => {
         
         // Remove old selection if it existed
         if (oldRecipient.beneficiary) {
-          // For district/institutions beneficiaries, use the display_text (to match usedBeneficiaries)
+          // For district beneficiaries use display text, institutions use app+aid key
           // For other types, extract app number from display text
           if (oldRecipient.beneficiaryType === 'District' || oldRecipient.beneficiaryType === 'Institutions') {
-            // Use display_text for district/institutions entries to match usedBeneficiaries
-            updatedSet.delete(oldRecipient.beneficiary);
+            const key = getTrackingKey(oldRecipient.beneficiaryType, oldRecipient.beneficiary);
+            if (key) updatedSet.delete(key);
           } else {
-            const oldAppNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
-            if (oldAppNumberMatch) {
-              updatedSet.delete(oldAppNumberMatch[1].trim());
-            }
+            const key = getTrackingKey(oldRecipient.beneficiaryType, oldRecipient.beneficiary);
+            if (key) updatedSet.delete(key);
           }
         }
         
@@ -1021,25 +1046,21 @@ const FundRequestForm: React.FC = () => {
               opt => opt.display_text === value
             );
             if (selectedOption) {
-              // For district/institutions beneficiaries, use the display_text (to match usedBeneficiaries)
+              // For district beneficiaries use display text, institutions use app+aid key
               // For other types, extract app number from display text
               if (recipient.beneficiaryType === 'District' || recipient.beneficiaryType === 'Institutions') {
-                // Use display_text for district/institutions entries to match usedBeneficiaries
-                updatedSet.add(value);
+                const key = getTrackingKey(recipient.beneficiaryType, value);
+                if (key) updatedSet.add(key);
               } else {
-                const appNumberMatch = value.match(/^([^-]+)/);
-                if (appNumberMatch) {
-                  updatedSet.add(appNumberMatch[1].trim());
-                }
+                const key = getTrackingKey(recipient.beneficiaryType, value);
+                if (key) updatedSet.add(key);
               }
               
-              // Update fund_requested with the total_amount from beneficiary
-              if (selectedOption.total_amount) {
-                updated[index] = {
-                  ...updated[index],
-                  fund_requested: selectedOption.total_amount,
-                };
-              }
+              // Always sync fund_requested from selected beneficiary amount
+              updated[index] = {
+                ...updated[index],
+                fund_requested: selectedOption.total_amount || 0,
+              };
               
               // For District beneficiaries, set district_name from the option if available
               if (recipient.beneficiaryType === 'District' && selectedOption.district_name) {
@@ -1074,6 +1095,13 @@ const FundRequestForm: React.FC = () => {
               
               setRecipients(updated);
             }
+          } else if (!value) {
+            // Beneficiary cleared: clear auto-filled amount as well
+            updated[index] = {
+              ...updated[index],
+              fund_requested: 0,
+            };
+            setRecipients(updated);
           }
         }
         
@@ -1082,27 +1110,36 @@ const FundRequestForm: React.FC = () => {
     }
   };
 
+  // Keep dropdown options in sync after select/reselect so availability updates immediately.
+  useEffect(() => {
+    recipients.forEach((recipient, idx) => {
+      if (!recipient.beneficiaryType || recipient.loadingBeneficiaries) return;
+      void loadBeneficiaries(recipient.beneficiaryType, idx, recipient.selectedDistrictId);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBeneficiaries, usedBeneficiaries]);
+
   const handleBeneficiaryTypeChange = (index: number, type: 'District' | 'Public' | 'Institutions' | 'Others' | undefined) => {
     const updated = [...recipients];
     const oldRecipient = updated[index];
     
     // Remove old beneficiary from tracking if it existed
     if (oldRecipient.beneficiary) {
-      // For district/institutions beneficiaries, use the display_text (to match usedBeneficiaries)
+      // For district beneficiaries use display text, institutions use app+aid key
       // For other types, extract app number from display text
       if (oldRecipient.beneficiaryType === 'District' || oldRecipient.beneficiaryType === 'Institutions') {
-        // Use display_text for district/institutions entries to match usedBeneficiaries
         setSelectedBeneficiaries(prev => {
           const updatedSet = new Set(prev);
-          updatedSet.delete(oldRecipient.beneficiary!);
+          const key = getTrackingKey(oldRecipient.beneficiaryType, oldRecipient.beneficiary!);
+          if (key) updatedSet.delete(key);
           return updatedSet;
         });
       } else {
-        const appNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
-        if (appNumberMatch) {
+        const key = getTrackingKey(oldRecipient.beneficiaryType, oldRecipient.beneficiary);
+        if (key) {
           setSelectedBeneficiaries(prev => {
             const updatedSet = new Set(prev);
-            updatedSet.delete(appNumberMatch[1].trim());
+            updatedSet.delete(key);
             return updatedSet;
           });
         }

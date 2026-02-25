@@ -40,7 +40,7 @@ export function formatDate(dateString: string | undefined): string {
 /**
  * Get the correct beneficiary display value based on beneficiary type
  * - For District type: Use district_name if available, otherwise extract from beneficiary string
- * - For Public type: Extract application number (before first '-')
+ * - For Public/Institutions/Others type: Extract application number (before first '-')
  * - For other types: Return the beneficiary field as-is
  */
 export function getBeneficiaryDisplayValue(recipient: FundRequestRecipient): string {
@@ -55,9 +55,13 @@ export function getBeneficiaryDisplayValue(recipient: FundRequestRecipient): str
     // Format: "D XXX - DistrictName - ₹ amount"
     const parts = recipient.beneficiary.split(' - ');
     return parts.length >= 2 ? parts[1] : recipient.beneficiary;
-  } else if (recipient.beneficiary_type === 'Public') {
+  } else if (
+    recipient.beneficiary_type === 'Public' ||
+    recipient.beneficiary_type === 'Institutions' ||
+    recipient.beneficiary_type === 'Others'
+  ) {
     // Extract application number (before first '-')
-    // Format: "P XXX - Name - ₹ amount"
+    // Format: "P/I/O XXX - ... - ₹ amount"
     const parts = recipient.beneficiary.split(' - ');
     return parts.length >= 1 ? parts[0].trim() : recipient.beneficiary;
   }
@@ -105,4 +109,3 @@ export function getBeneficiaryDisplayValueForExport(
   
   return recipient.beneficiary || '';
 }
-

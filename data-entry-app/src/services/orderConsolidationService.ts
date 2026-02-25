@@ -297,7 +297,7 @@ export const getConsolidatedOrdersWithTracking = async (): Promise<OrderConsolid
         }
       });
       
-      const quantityPending = Math.max(0, article.totalQuantity - totalQuantityOrdered);
+      const quantityPending = article.totalQuantity - totalQuantityOrdered;
       
       return {
         ...article,
