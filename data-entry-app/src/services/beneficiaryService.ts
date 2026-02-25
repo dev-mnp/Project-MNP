@@ -9,13 +9,13 @@ export interface BeneficiaryDropdownOption {
   name?: string;
   institution_name?: string;
   aadhar_number?: string;
-  id?: string; // Entry ID for district entries to ensure uniqueness
+  id?: string; // Entry ID for district/institution entries to ensure uniqueness
 }
 
 /**
  * Fetch used beneficiaries from saved fund requests
  * Returns a Set of identifiers that have been used in fund requests
- * For District entries: returns the full display_text (since we match by display_text)
+ * For District and Institutions entries: returns the full display_text (since we match by display_text)
  * For other types: returns the application_number extracted from display text
  */
 export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?: string): Promise<Set<string>> => {
@@ -50,14 +50,14 @@ export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?
     }
 
     // Extract identifiers from beneficiary display text
-    // For District: use full display_text (since district entries use entry ID in application_number)
+    // For District/Institutions: use full display_text
     // For others: extract application_number from display text
     const usedIdentifiers = new Set<string>();
     
     data.forEach((entry: any) => {
       if (entry.beneficiary) {
-        if (entry.beneficiary_type === 'District') {
-          // For district entries, use the full display_text as identifier
+        if (entry.beneficiary_type === 'District' || entry.beneficiary_type === 'Institutions') {
+          // For district/institution entries, use the full display_text as identifier
           // This matches how we filter in loadBeneficiaries
           usedIdentifiers.add(entry.beneficiary);
         } else {
@@ -333,9 +333,11 @@ export const fetchInstitutionBeneficiariesForDropdown = async (aidType?: string)
     const { data, error } = await supabase
       .from('institutions_beneficiary_entries')
       .select(`
+        id,
         application_number,
         institution_name,
         total_amount,
+        notes,
         articles:article_id (
           item_type,
           article_name,
@@ -355,9 +357,8 @@ export const fetchInstitutionBeneficiariesForDropdown = async (aidType?: string)
       return [];
     }
 
-    // Group by application_number and calculate total (only for Aid items)
-    const grouped = new Map<string, { institution_name: string; total_amount: number }>();
-
+    // Show each aid entry separately (like district fix) so one institution can have multiple selectable aid rows
+    const results: BeneficiaryDropdownOption[] = [];
     data.forEach((entry: any) => {
       const appNumber = entry.application_number;
       if (!appNumber) return;
@@ -380,25 +381,31 @@ export const fetchInstitutionBeneficiariesForDropdown = async (aidType?: string)
 
       const institutionName = entry.institution_name || '';
       const amount = parseFloat(entry.total_amount) || 0;
+      const aidTypeName = entry.articles?.article_name || 'Unknown Aid';
+      const notes = entry.notes || '';
+      const entryId = entry.id || '';
 
-      if (grouped.has(appNumber)) {
-        const existing = grouped.get(appNumber)!;
-        existing.total_amount += amount;
-      } else {
-        grouped.set(appNumber, {
-          institution_name: institutionName,
-          total_amount: amount,
-        });
+      let displayText = `${appNumber} - ${aidTypeName} - ₹ ${amount.toLocaleString()}`;
+      if (notes && notes.trim()) {
+        displayText += ` - ${notes}`;
       }
+
+      results.push({
+        application_number: entryId || `${appNumber}-${aidTypeName}`,
+        display_text: displayText,
+        total_amount: amount,
+        institution_name: institutionName,
+        id: entryId,
+      });
     });
 
-    // Convert to array format
-    return Array.from(grouped.entries()).map(([application_number, data]) => ({
-      application_number,
-      display_text: `${application_number} - ${data.institution_name} - ₹ ${data.total_amount.toLocaleString()}`,
-      total_amount: data.total_amount,
-      institution_name: data.institution_name,
-    }));
+    results.sort((a, b) => {
+      const aNum = a.display_text.split(' - ')[0];
+      const bNum = b.display_text.split(' - ')[0];
+      return bNum.localeCompare(aNum);
+    });
+
+    return results;
   } catch (error) {
     console.error('Failed to fetch institution beneficiaries:', error);
     throw error;

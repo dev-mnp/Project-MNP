@@ -563,10 +563,10 @@ const FundRequestForm: React.FC = () => {
         const currentSelection = currentRecipient?.beneficiary;
         let currentIdentifier: string | null = null;
         if (currentSelection) {
-          // For district beneficiaries, use the display_text directly (since that's what's stored in usedBeneficiaries)
+          // For district/institutions beneficiaries, use the display_text directly
           // For other types, extract app number from display text
-          if (type === 'District') {
-            currentIdentifier = currentSelection; // Use display_text directly for district
+          if (type === 'District' || type === 'Institutions') {
+            currentIdentifier = currentSelection; // Use display_text directly for district/institutions
           } else {
             const match = currentSelection.match(/^([^-]+)/);
             if (match) {
@@ -581,11 +581,11 @@ const FundRequestForm: React.FC = () => {
           allExcluded.delete(currentIdentifier);
         }
         
-        // For district entries, filter by display_text (since usedBeneficiaries contains full display_text for districts)
+        // For district/institutions entries, filter by display_text
         // For other types, filter by application_number
         const filteredData = beneficiaryCache[type]!.filter(option => {
-          if (type === 'District') {
-            // For district, check if the display_text is in the excluded set
+          if (type === 'District' || type === 'Institutions') {
+            // For district/institutions, check if the display_text is in the excluded set
             return !allExcluded.has(option.display_text);
           } else {
             // For other types, check if the application_number is in the excluded set
@@ -646,10 +646,10 @@ const FundRequestForm: React.FC = () => {
         const currentSelection = currentRecipient?.beneficiary;
         let currentIdentifier: string | null = null;
         if (currentSelection) {
-          // For district beneficiaries, use the display_text directly (since that's what's stored in usedBeneficiaries)
+          // For district/institutions beneficiaries, use the display_text directly
           // For other types, extract app number from display text
-          if (type === 'District') {
-            currentIdentifier = currentSelection; // Use display_text directly for district
+          if (type === 'District' || type === 'Institutions') {
+            currentIdentifier = currentSelection; // Use display_text directly for district/institutions
           } else {
             const match = currentSelection.match(/^([^-]+)/);
             if (match) {
@@ -665,11 +665,11 @@ const FundRequestForm: React.FC = () => {
           allExcluded.delete(currentIdentifier);
         }
         
-        // For district entries, filter by display_text (since usedBeneficiaries contains full display_text for districts)
+        // For district/institutions entries, filter by display_text
         // For other types, filter by application_number
         const filteredData = data.filter(option => {
-          if (type === 'District') {
-            // For district, check if the display_text is in the excluded set
+          if (type === 'District' || type === 'Institutions') {
+            // For district/institutions, check if the display_text is in the excluded set
             return !allExcluded.has(option.display_text);
           } else {
             // For other types, check if the application_number is in the excluded set
@@ -964,14 +964,22 @@ const FundRequestForm: React.FC = () => {
     const recipientToRemove = recipients[index];
     // Remove beneficiary from tracking if it was selected
     if (recipientToRemove.beneficiary) {
-      // Extract application_number from beneficiary display text
-      const appNumberMatch = recipientToRemove.beneficiary.match(/^([^-]+)/);
-      if (appNumberMatch) {
+      if (recipientToRemove.beneficiaryType === 'District' || recipientToRemove.beneficiaryType === 'Institutions') {
         setSelectedBeneficiaries(prev => {
           const updated = new Set(prev);
-          updated.delete(appNumberMatch[1].trim());
+          updated.delete(recipientToRemove.beneficiary!);
           return updated;
         });
+      } else {
+        // Extract application_number from beneficiary display text
+        const appNumberMatch = recipientToRemove.beneficiary.match(/^([^-]+)/);
+        if (appNumberMatch) {
+          setSelectedBeneficiaries(prev => {
+            const updated = new Set(prev);
+            updated.delete(appNumberMatch[1].trim());
+            return updated;
+          });
+        }
       }
     }
     setRecipients(recipients.filter((_, i) => i !== index));
@@ -990,10 +998,10 @@ const FundRequestForm: React.FC = () => {
         
         // Remove old selection if it existed
         if (oldRecipient.beneficiary) {
-          // For district beneficiaries, use the display_text (to match usedBeneficiaries)
+          // For district/institutions beneficiaries, use the display_text (to match usedBeneficiaries)
           // For other types, extract app number from display text
-          if (oldRecipient.beneficiaryType === 'District') {
-            // Use display_text for district entries to match usedBeneficiaries
+          if (oldRecipient.beneficiaryType === 'District' || oldRecipient.beneficiaryType === 'Institutions') {
+            // Use display_text for district/institutions entries to match usedBeneficiaries
             updatedSet.delete(oldRecipient.beneficiary);
           } else {
             const oldAppNumberMatch = oldRecipient.beneficiary.match(/^([^-]+)/);
@@ -1013,10 +1021,10 @@ const FundRequestForm: React.FC = () => {
               opt => opt.display_text === value
             );
             if (selectedOption) {
-              // For district beneficiaries, use the display_text (to match usedBeneficiaries)
+              // For district/institutions beneficiaries, use the display_text (to match usedBeneficiaries)
               // For other types, extract app number from display text
-              if (recipient.beneficiaryType === 'District') {
-                // Use display_text for district entries to match usedBeneficiaries
+              if (recipient.beneficiaryType === 'District' || recipient.beneficiaryType === 'Institutions') {
+                // Use display_text for district/institutions entries to match usedBeneficiaries
                 updatedSet.add(value);
               } else {
                 const appNumberMatch = value.match(/^([^-]+)/);
@@ -1080,10 +1088,10 @@ const FundRequestForm: React.FC = () => {
     
     // Remove old beneficiary from tracking if it existed
     if (oldRecipient.beneficiary) {
-      // For district beneficiaries, use the display_text (to match usedBeneficiaries)
+      // For district/institutions beneficiaries, use the display_text (to match usedBeneficiaries)
       // For other types, extract app number from display text
-      if (oldRecipient.beneficiaryType === 'District') {
-        // Use display_text for district entries to match usedBeneficiaries
+      if (oldRecipient.beneficiaryType === 'District' || oldRecipient.beneficiaryType === 'Institutions') {
+        // Use display_text for district/institutions entries to match usedBeneficiaries
         setSelectedBeneficiaries(prev => {
           const updatedSet = new Set(prev);
           updatedSet.delete(oldRecipient.beneficiary!);
