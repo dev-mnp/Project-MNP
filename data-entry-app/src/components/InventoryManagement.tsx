@@ -474,7 +474,9 @@ const InventoryManagement: React.FC = () => {
                     onClick={() => handleSort('pending')}
                   >
                     <div className="flex items-center justify-center gap-1">
-                      Pending
+                      <span className="text-red-600 dark:text-red-400">Pending</span>
+                      <span>/</span>
+                      <span className="text-green-600 dark:text-green-400">Excess</span>
                       <span className={`text-xs ${sortColumn === 'pending' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-gray-500'}`}>
                         {getSortIcon('pending')}
                       </span>
