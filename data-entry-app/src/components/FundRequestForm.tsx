@@ -68,7 +68,7 @@ const getTrackingKey = (
 ): string => {
   if (!displayValue) return '';
   if (type === 'District') return displayValue;
-  if (type === 'Institutions') return getInstitutionAidKey(displayValue);
+  if (type === 'Institutions') return displayValue;
   return getAppNumberFromDisplay(displayValue);
 };
 
@@ -531,12 +531,8 @@ const FundRequestForm: React.FC = () => {
           // Track beneficiaries from loaded data
           const loadedBeneficiaries = new Set<string>();
           loadedRecipients.forEach(r => {
-            if (r.beneficiary) {
-              const appNumberMatch = r.beneficiary.match(/^([^-]+)/);
-              if (appNumberMatch) {
-                loadedBeneficiaries.add(appNumberMatch[1].trim());
-              }
-            }
+            const key = getTrackingKey(r.beneficiaryType, r.beneficiary || '');
+            if (key) loadedBeneficiaries.add(key);
           });
           setSelectedBeneficiaries(loadedBeneficiaries);
         }
@@ -597,6 +593,86 @@ const FundRequestForm: React.FC = () => {
     // When district is selected, we need individual entries with aid types, not grouped cache
     // Always skip cache when districtId is provided (for District type) or when aidType is provided
     const shouldUseCache = beneficiaryCache[type] && !currentAidType && !selectedDistrictId;
+
+    const applyRecipientExclusions = (
+      options: BeneficiaryDropdownOption[],
+      recipient: RecipientFormData | undefined
+    ): BeneficiaryDropdownOption[] => {
+      const currentSelection = recipient?.beneficiary;
+      let currentIdentifier: string | null = null;
+      if (currentSelection) {
+        currentIdentifier = getTrackingKey(type, currentSelection);
+      }
+
+      const allExcluded = new Set([...selectedBeneficiaries, ...usedBeneficiaries]);
+      if (currentIdentifier) {
+        allExcluded.delete(currentIdentifier);
+      }
+
+      return options.filter(option => {
+        if (type === 'District') {
+          return !allExcluded.has(option.display_text);
+        }
+        if (type === 'Institutions') {
+          // For current in-form selections, exclude exact option only (allow multiple rows under same aid).
+          if (selectedBeneficiaries.has(option.display_text)) {
+            return false;
+          }
+          // In edit mode, allow options so legacy/incomplete rows can be recovered.
+          if (id) {
+            return true;
+          }
+          // In create mode, exclude already-used entries from other saved FRs by stable key.
+          const usedInstitutionAidKeys = new Set(
+            Array.from(usedBeneficiaries).map((value) => getInstitutionAidKey(value))
+          );
+          return !usedInstitutionAidKeys.has(getInstitutionAidKey(option.display_text));
+        }
+        return !allExcluded.has(option.application_number);
+      });
+    };
+
+    const ensureCurrentSelectionVisible = (
+      options: BeneficiaryDropdownOption[],
+      recipient: RecipientFormData | undefined
+    ): BeneficiaryDropdownOption[] => {
+      const selectedValue = String(recipient?.beneficiary || '').trim();
+      if (!selectedValue) return options;
+
+      const alreadyPresent = options.some((opt) => opt.display_text === selectedValue);
+      if (alreadyPresent) return options;
+
+      const amount = Number(recipient?.fund_requested || 0);
+      const appNo = getAppNumberFromDisplay(selectedValue) || selectedValue;
+
+      return [
+        {
+          application_number: appNo,
+          display_text: selectedValue,
+          total_amount: amount,
+          district_name: recipient?.district_name,
+        },
+        ...options,
+      ];
+    };
+
+    const inferMissingBeneficiarySelection = (
+      options: BeneficiaryDropdownOption[],
+      recipient: RecipientFormData | undefined
+    ): string | null => {
+      if (!recipient || recipient.beneficiary) return null;
+      const recipientName = String(recipient.recipient_name || recipient.name_of_beneficiary || '').trim().toLowerCase();
+      const requested = Number(recipient.fund_requested || 0);
+      if (!recipientName || requested <= 0) return null;
+
+      const matches = options.filter((opt) => {
+        const text = String(opt.display_text || '').toLowerCase();
+        const amount = Number(opt.total_amount || 0);
+        return text.includes(recipientName) && amount === requested;
+      });
+
+      return matches.length === 1 ? matches[0].display_text : null;
+    };
     
     if (shouldUseCache) {
       // Only use cache if no aid_type filter and no district filter is applied
@@ -604,45 +680,15 @@ const FundRequestForm: React.FC = () => {
       // Don't exclude current recipient's selection
       setRecipients(prev => {
         const currentRecipient = prev[recipientIndex];
-        const currentSelection = currentRecipient?.beneficiary;
-        let currentIdentifier: string | null = null;
-        if (currentSelection) {
-          // For district beneficiaries use display text, institutions use app+aid key
-          // For other types, extract app number from display text
-          if (type === 'District' || type === 'Institutions') {
-            currentIdentifier = getTrackingKey(type, currentSelection);
-          } else {
-            currentIdentifier = getTrackingKey(type, currentSelection);
-          }
-        }
-        
-        const allExcluded = new Set([...selectedBeneficiaries, ...usedBeneficiaries]);
-        // Don't exclude the current recipient's selection (if any)
-        if (currentIdentifier) {
-          allExcluded.delete(currentIdentifier);
-        }
-        
-        // For district entries, filter by display_text
-        // For institutions entries, filter by app+aid key
-        // For other types, filter by application_number
-        const filteredData = beneficiaryCache[type]!.filter(option => {
-          if (type === 'District') {
-            return !allExcluded.has(option.display_text);
-          }
-          if (type === 'Institutions') {
-            const excludedInstitutionAidKeys = new Set(
-              Array.from(allExcluded).map((value) => getInstitutionAidKey(value))
-            );
-            return !excludedInstitutionAidKeys.has(getInstitutionAidKey(option.display_text));
-          }
-          // For public/others, check if the application_number is in the excluded set
-          return !allExcluded.has(option.application_number);
-        });
+        const filteredData = applyRecipientExclusions(beneficiaryCache[type]!, currentRecipient);
+        const optionsWithCurrent = ensureCurrentSelectionVisible(filteredData, currentRecipient);
+        const inferredBeneficiary = inferMissingBeneficiarySelection(optionsWithCurrent, currentRecipient);
         
         const updated = [...prev];
         updated[recipientIndex] = {
           ...updated[recipientIndex],
-          beneficiaryOptions: filteredData,
+          beneficiaryOptions: optionsWithCurrent,
+          ...(inferredBeneficiary ? { beneficiary: inferredBeneficiary } : {}),
           loadingBeneficiaries: false,
         };
         return updated;
@@ -654,9 +700,14 @@ const FundRequestForm: React.FC = () => {
     if (cachedByRequestKey) {
       setRecipients(prev => {
         const updated = [...prev];
+        const currentRecipient = prev[recipientIndex];
+        const filteredData = applyRecipientExclusions(cachedByRequestKey, currentRecipient);
+        const optionsWithCurrent = ensureCurrentSelectionVisible(filteredData, currentRecipient);
+        const inferredBeneficiary = inferMissingBeneficiarySelection(optionsWithCurrent, currentRecipient);
         updated[recipientIndex] = {
           ...updated[recipientIndex],
-          beneficiaryOptions: cachedByRequestKey,
+          beneficiaryOptions: optionsWithCurrent,
+          ...(inferredBeneficiary ? { beneficiary: inferredBeneficiary } : {}),
           loadingBeneficiaries: false,
         };
         return updated;
@@ -702,48 +753,16 @@ const FundRequestForm: React.FC = () => {
       // Filter out already selected beneficiaries (current session + saved)
       // Use functional update to get latest state
       setRecipients(prev => {
-        // Get current selected beneficiaries (excluding current recipient's selection)
         const currentRecipient = prev[recipientIndex];
-        const currentSelection = currentRecipient?.beneficiary;
-        let currentIdentifier: string | null = null;
-        if (currentSelection) {
-          // For district beneficiaries use display text, institutions use app+aid key
-          // For other types, extract app number from display text
-          if (type === 'District' || type === 'Institutions') {
-            currentIdentifier = getTrackingKey(type, currentSelection);
-          } else {
-            currentIdentifier = getTrackingKey(type, currentSelection);
-          }
-        }
-        
-        // Get latest selected beneficiaries state
-        const allExcluded = new Set([...selectedBeneficiaries, ...usedBeneficiaries]);
-        // Don't exclude the current recipient's selection (if any)
-        if (currentIdentifier) {
-          allExcluded.delete(currentIdentifier);
-        }
-        
-        // For district entries, filter by display_text
-        // For institutions entries, filter by app+aid key
-        // For other types, filter by application_number
-        const filteredData = data.filter(option => {
-          if (type === 'District') {
-            return !allExcluded.has(option.display_text);
-          }
-          if (type === 'Institutions') {
-            const excludedInstitutionAidKeys = new Set(
-              Array.from(allExcluded).map((value) => getInstitutionAidKey(value))
-            );
-            return !excludedInstitutionAidKeys.has(getInstitutionAidKey(option.display_text));
-          }
-          // For public/others, check if the application_number is in the excluded set
-          return !allExcluded.has(option.application_number);
-        });
+        const filteredData = applyRecipientExclusions(data, currentRecipient);
+        const optionsWithCurrent = ensureCurrentSelectionVisible(filteredData, currentRecipient);
+        const inferredBeneficiary = inferMissingBeneficiarySelection(optionsWithCurrent, currentRecipient);
 
         const updated = [...prev];
         updated[recipientIndex] = {
           ...updated[recipientIndex],
-          beneficiaryOptions: filteredData,
+          beneficiaryOptions: optionsWithCurrent,
+          ...(inferredBeneficiary ? { beneficiary: inferredBeneficiary } : {}),
           loadingBeneficiaries: false,
         };
         return updated;

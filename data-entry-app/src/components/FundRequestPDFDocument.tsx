@@ -305,13 +305,31 @@ const FundRequestPDFDocument: React.FC<FundRequestPDFDocumentProps> = ({
 }) => {
   const currentTotal = fundRequest.total_amount || 0;
   const grandTotal = previousCumulative + currentTotal;
+
+  const inferAidTypeFromRecipients = () => {
+    const recipients = fundRequest.recipients || [];
+    for (const recipient of recipients) {
+      const text = String(recipient?.beneficiary || '').trim();
+      const type = String(recipient?.beneficiary_type || '').trim();
+      if (!text) continue;
+
+      if (type === 'District' || type === 'Institutions' || type === 'Others') {
+        const parts = text.split(' - ').map((p) => p.trim()).filter(Boolean);
+        if (parts.length >= 2 && !/^₹/.test(parts[1])) {
+          return parts[1];
+        }
+      }
+    }
+    return '';
+  };
   
   // Format the title based on fund request type
   const formattedDate = formatDate(fundRequest.created_at);
+  const effectiveAidType = fundRequest.aid_type || inferAidTypeFromRecipients();
   const titleText = fundRequest.fund_request_type === 'Article'
     ? `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate} - Article`
-    : fundRequest.aid_type
-    ? `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate} - ${fundRequest.aid_type}`
+    : effectiveAidType
+    ? `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate} - ${effectiveAidType}`
     : `Fund Request No: ${fundRequest.fund_request_number}, Dated ${formattedDate}`;
 
   return (

@@ -226,7 +226,14 @@ const InventoryManagement: React.FC = () => {
   
   const articlesNeeded = articles.reduce((sum, a) => sum + a.totalQuantity, 0);
   const articlesOrdered = articles.reduce((sum, a) => sum + (a.quantityOrdered || 0), 0);
-  const articlesPending = articles.reduce((sum, a) => sum + (a.quantityPending || 0), 0);
+  const articlesPendingCount = articles.reduce((sum, a) => {
+    const pending = a.quantityPending || 0;
+    return sum + (pending > 0 ? pending : 0);
+  }, 0);
+  const articlesExcessCount = articles.reduce((sum, a) => {
+    const pending = a.quantityPending || 0;
+    return sum + (pending < 0 ? Math.abs(pending) : 0);
+  }, 0);
   
   const aidsNeeded = aids.reduce((sum, a) => sum + a.totalQuantity, 0);
   const aidsOrdered = aids.reduce((sum, a) => sum + (a.quantityOrdered || 0), 0);
@@ -324,8 +331,14 @@ const InventoryManagement: React.FC = () => {
             </div>
             <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
               <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending</span>
-              <span className={`text-lg font-bold ${articlesPending > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                {articlesPending.toLocaleString('en-IN')}
+              <span className={`text-lg font-bold ${articlesPendingCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                {articlesPendingCount.toLocaleString('en-IN')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Excess</span>
+              <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                {articlesExcessCount.toLocaleString('en-IN')}
               </span>
             </div>
           </div>

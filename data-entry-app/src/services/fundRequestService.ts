@@ -364,9 +364,33 @@ export const fetchFundRequests = async (filters?: {
   end_date?: string;
 }): Promise<FundRequest[]> => {
   try {
+    const inferAidTypeFromRecipients = (
+      recipients: Array<{ beneficiary?: string; beneficiary_type?: string }> | undefined
+    ): string | null => {
+      if (!recipients || recipients.length === 0) return null;
+
+      for (const recipient of recipients) {
+        const text = String(recipient?.beneficiary || '').trim();
+        const type = String(recipient?.beneficiary_type || '').trim();
+        if (!text) continue;
+
+        // District/Institutions beneficiary format usually includes aid name:
+        // "D056 - Education Aid - ₹ 20,000 - Name"
+        // "I019 - Environment Aid - ₹ 30,000"
+        if (type === 'District' || type === 'Institutions' || type === 'Others') {
+          const parts = text.split(' - ').map((p) => p.trim()).filter(Boolean);
+          if (parts.length >= 2 && !/^₹/.test(parts[1])) {
+            return parts[1];
+          }
+        }
+      }
+
+      return null;
+    };
+
     let query = supabase
       .from('fund_request')
-      .select('*, fund_request_articles(article_name, supplier_article_name)')
+      .select('*, fund_request_articles(article_name, supplier_article_name), fund_request_recipients(beneficiary, beneficiary_type)')
       .order('created_at', { ascending: false });
 
     if (filters?.fund_request_type) {
@@ -405,9 +429,12 @@ export const fetchFundRequests = async (filters?: {
         .join(' ')
         .trim();
 
+      const inferredAidType = item.aid_type || inferAidTypeFromRecipients(item.fund_request_recipients);
+
       return {
         ...item,
         total_amount: parseFloat(item.total_amount) || 0,
+        aid_type: inferredAidType || item.aid_type || null,
         article_search_text: articleSearchText,
       };
     });

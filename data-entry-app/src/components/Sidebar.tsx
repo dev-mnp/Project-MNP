@@ -53,6 +53,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const phase2Items = [
     { id: 'seat-allocation', label: 'Seat Allocation', icon: CalendarCheck2, path: '/seat-allocation' },
     { id: 'sequence-list', label: 'Sequence List', icon: ListOrdered, path: '/sequence-list' },
+    // Hidden for now; keep route/components in codebase for later rollout.
+    // { id: 'token-module', label: 'Tokens', icon: Ticket, path: '/token-module' },
   ];
 
   const adminItems = isAdmin
