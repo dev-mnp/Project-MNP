@@ -37,6 +37,26 @@ const findHeaderName = (headers: string[], candidates: string[]): string | null 
   return null;
 };
 
+const getRowCategory = (row: SequenceSourceRow): string => {
+  const candidates = [
+    'Master Category',
+    'master category',
+    'Category',
+    'category',
+    'Item Type',
+    'ITEM TYPE',
+    'item type',
+  ];
+  for (const key of candidates) {
+    const value = row.rowMap?.[key];
+    if (value !== undefined && value !== null) {
+      const text = String(value).trim();
+      if (text) return text;
+    }
+  }
+  return 'Uncategorized';
+};
+
 const parseCSVRows = (text: string): string[][] => {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -211,6 +231,7 @@ const Phase2SequenceList: React.FC = () => {
   const [includeOnlyTokenRows, setIncludeOnlyTokenRows] = useState(true);
   const [sequenceStart, setSequenceStart] = useState(1);
   const [unassignedSearch, setUnassignedSearch] = useState('');
+  const [unassignedCategoryFilter, setUnassignedCategoryFilter] = useState('all');
   const [sourceRows, setSourceRows] = useState<SequenceSourceRow[]>([]);
 
   const sequence2025Map = useMemo(
@@ -227,11 +248,38 @@ const Phase2SequenceList: React.FC = () => {
 
   const uniqueItemCount = assignedItems.length + unassignedItems.length;
   const dataRowCount = sourceRows.length;
+  const categoryByItem = useMemo(() => {
+    const map = new Map<string, string>();
+    sourceRows.forEach((row) => {
+      const item = row.requestedItem.trim();
+      if (!item || map.has(item)) return;
+      map.set(item, getRowCategory(row));
+    });
+    return map;
+  }, [sourceRows]);
+  const unassignedCategoryOptions = useMemo(
+    () =>
+      Array.from(new Set(unassignedItems.map((item) => categoryByItem.get(item) || 'Uncategorized'))).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' })
+      ),
+    [unassignedItems, categoryByItem]
+  );
   const filteredUnassignedItems = useMemo(() => {
     const q = unassignedSearch.trim().toLowerCase();
-    if (!q) return unassignedItems;
-    return unassignedItems.filter((item) => item.toLowerCase().includes(q));
-  }, [unassignedItems, unassignedSearch]);
+    return unassignedItems.filter((item) => {
+      const matchesSearch = !q || item.toLowerCase().includes(q);
+      const category = categoryByItem.get(item) || 'Uncategorized';
+      const matchesCategory = unassignedCategoryFilter === 'all' || category === unassignedCategoryFilter;
+      return matchesSearch && matchesCategory;
+    });
+  }, [unassignedItems, unassignedSearch, unassignedCategoryFilter, categoryByItem]);
+
+  useEffect(() => {
+    if (unassignedCategoryFilter === 'all') return;
+    if (!unassignedCategoryOptions.includes(unassignedCategoryFilter)) {
+      setUnassignedCategoryFilter('all');
+    }
+  }, [unassignedCategoryFilter, unassignedCategoryOptions]);
 
   const sequenceByItem = useMemo(() => {
     const start = Number.isFinite(sequenceStart) && sequenceStart > 0 ? Math.floor(sequenceStart) : 1;
@@ -710,25 +758,53 @@ const Phase2SequenceList: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
             <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">Unassigned Items</div>
-            <div className="relative w-52 max-w-full">
-              <input
-                type="text"
-                value={unassignedSearch}
-                onChange={(e) => setUnassignedSearch(e.target.value)}
-                placeholder="Search items..."
-                className="w-full px-2.5 py-1 pr-7 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              />
-              {unassignedSearch && (
-                <button
-                  type="button"
-                  onClick={() => setUnassignedSearch('')}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 text-xs px-1"
-                  aria-label="Clear search"
-                  title="Clear search"
-                >
-                  ×
-                </button>
-              )}
+            <div className="flex items-center gap-2 w-full max-w-md justify-end">
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedLeft((prev) => {
+                    const next = new Set(prev);
+                    filteredUnassignedItems.forEach((item) => next.add(item));
+                    return next;
+                  })
+                }
+                disabled={filteredUnassignedItems.length === 0}
+                className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                Select All
+              </button>
+              <select
+                value={unassignedCategoryFilter}
+                onChange={(e) => setUnassignedCategoryFilter(e.target.value)}
+                className="w-40 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              >
+                <option value="all">All Categories</option>
+                {unassignedCategoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+              <div className="relative w-52 max-w-full">
+                <input
+                  type="text"
+                  value={unassignedSearch}
+                  onChange={(e) => setUnassignedSearch(e.target.value)}
+                  placeholder="Search items..."
+                  className="w-full px-2.5 py-1 pr-7 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                />
+                {unassignedSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setUnassignedSearch('')}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 text-xs px-1"
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
           </div>
           <div className="max-h-[65vh] overflow-auto p-2">
@@ -781,6 +857,14 @@ const Phase2SequenceList: React.FC = () => {
           <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
             <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">Sequenced Items</div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedRight(new Set(assignedItems.map((row) => row.item)))}
+                disabled={assignedItems.length === 0}
+                className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                Select All
+              </button>
               <button
                 type="button"
                 onClick={handleSortAssignedByItem}
