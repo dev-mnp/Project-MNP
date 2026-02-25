@@ -20,7 +20,9 @@ const IST_TIMEZONE = 'Asia/Kolkata';
 const EXPORT_CUTOFF_DATE = process.env.EXPORT_CUTOFF_DATE || '2026-03-02';
 const OUTPUT_DIR = process.env.EXPORT_OUTPUT_DIR || './exports';
 const SKIP_DRIVE_UPLOAD = process.env.SKIP_DRIVE_UPLOAD === 'true';
-const GOOGLE_AUTH_MODE = process.env.GOOGLE_AUTH_MODE || 'service_account';
+const GOOGLE_AUTH_MODE =
+  process.env.GOOGLE_AUTH_MODE ||
+  (process.env.GOOGLE_OAUTH_REFRESH_TOKEN ? 'oauth_user' : 'service_account');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -65,6 +67,11 @@ function escapeCsv(value) {
     return `"${str.replaceAll('"', '""')}"`;
   }
   return str;
+}
+
+function readEnv(name) {
+  const value = process.env[name];
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function writeCsv(filePath, headers, rows) {
@@ -381,12 +388,30 @@ async function buildArticleManagementExport(timestamp) {
 }
 
 async function getDriveClient() {
-  if (GOOGLE_AUTH_MODE === 'oauth_user') {
-    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  const mode = GOOGLE_AUTH_MODE;
+
+  const buildServiceAccountClient = async () => {
+    const serviceAccountJson = readEnv('GOOGLE_SERVICE_ACCOUNT_JSON');
+    if (!serviceAccountJson) {
+      throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON for service_account auth mode');
+    }
+
+    const credentials = JSON.parse(serviceAccountJson);
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/drive'],
+    });
+    return google.drive({ version: 'v3', auth });
+  };
+
+  const buildOAuthClient = async () => {
+    const clientId = readEnv('GOOGLE_OAUTH_CLIENT_ID');
+    const clientSecret = readEnv('GOOGLE_OAUTH_CLIENT_SECRET');
+    const refreshToken = readEnv('GOOGLE_OAUTH_REFRESH_TOKEN');
     if (!clientId || !clientSecret || !refreshToken) {
-      throw new Error('Missing OAuth env vars: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN');
+      throw new Error(
+        'Missing OAuth env vars: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REFRESH_TOKEN'
+      );
     }
 
     const oauth2Client = new OAuth2Client({
@@ -394,20 +419,36 @@ async function getDriveClient() {
       clientSecret,
     });
     oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+    try {
+      await oauth2Client.getAccessToken();
+    } catch (error) {
+      const message = String(error?.message || error || '');
+      if (message.includes('invalid_grant') || message.includes('Token has been expired or revoked')) {
+        throw new Error(
+          'Google OAuth refresh token is invalid/expired. Re-generate GOOGLE_OAUTH_REFRESH_TOKEN in Google Cloud and update GitHub secret.'
+        );
+      }
+      throw error;
+    }
+
     return google.drive({ version: 'v3', auth: oauth2Client });
+  };
+
+  if (mode === 'oauth_user') {
+    try {
+      return await buildOAuthClient();
+    } catch (error) {
+      const hasServiceAccount = !!readEnv('GOOGLE_SERVICE_ACCOUNT_JSON');
+      if (!hasServiceAccount) throw error;
+      console.warn(
+        `OAuth user auth failed (${String(error?.message || error)}). Falling back to service account auth.`
+      );
+      return buildServiceAccountClient();
+    }
   }
 
-  const serviceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (!serviceAccountJson) {
-    throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON for service_account auth mode');
-  }
-
-  const credentials = JSON.parse(serviceAccountJson);
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
-  return google.drive({ version: 'v3', auth });
+  return buildServiceAccountClient();
 }
 
 async function ensureDriveFolderPath(drive, targetPathRaw) {

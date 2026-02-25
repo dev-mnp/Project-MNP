@@ -1,5 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, FileUp, RefreshCw, Save } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import { useNotifications } from '../contexts/NotificationContext';
 import { fetchSeatAllocationRows, updateSeatAllocationSequenceData } from '../services/seatAllocationService';
 import {
@@ -77,6 +78,24 @@ const parseNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const findObjectKey = (obj: Record<string, any>, candidates: string[]): string | null => {
+  const byNormalized = new Map(Object.keys(obj).map((k) => [normalizeHeader(k), k]));
+  for (const candidate of candidates) {
+    const found = byNormalized.get(normalizeHeader(candidate));
+    if (found) return found;
+  }
+  return null;
+};
+
+const parseAppAndName = (rawName: string): { appNo: string; name: string } => {
+  const text = String(rawName || '').trim();
+  if (text.includes(' - ')) {
+    const [app, ...nameParts] = text.split(' - ');
+    return { appNo: app.trim(), name: nameParts.join(' - ').trim() };
+  }
+  return { appNo: '', name: text };
+};
+
 const toLegacyBeneficiaryType = (type: string): string => {
   const normalized = normalizeText(type);
   if (normalized === 'institutions') return 'Institution';
@@ -105,6 +124,23 @@ const Phase2TokenModule: React.FC = () => {
   const [isGeneratingLabels, setIsGeneratingLabels] = useState(false);
   const [sourceFileName, setSourceFileName] = useState('');
   const [rows, setRows] = useState<TokenRow[]>([]);
+  const [publicAckRows, setPublicAckRows] = useState<Array<{
+    id: string;
+    applicationNumber: string;
+    beneficiaryName: string;
+    aadharNumber: string;
+    item: string;
+    waitingHallQuantity: number;
+    district: string;
+    tokenStartNo: number;
+    tokenEndNo: number;
+    mobile: string;
+    address: string;
+    notes: string;
+  }>>([]);
+  const [publicDetailsFileName, setPublicDetailsFileName] = useState('');
+  const [isLoadingPublicDetails, setIsLoadingPublicDetails] = useState(false);
+  const publicDetailsFileInputRef = useRef<HTMLInputElement | null>(null);
   const [startTokenNo, setStartTokenNo] = useState(1);
   const [bigItemsInput, setBigItemsInput] = useState(DEFAULT_BIG_ITEMS.join('\n'));
   const [printLayout, setPrintLayout] = useState<LabelLayout>('continuous');
@@ -126,6 +162,149 @@ const Phase2TokenModule: React.FC = () => {
     () => generatedRows.filter((r) => r.tokenQuantity > 0 || r.waitingHallQuantity > 0),
     [generatedRows]
   );
+
+  useEffect(() => {
+    const next = generatedRows
+      .filter((r) => normalizeText(r.beneficiaryType) === 'public' && r.waitingHallQuantity > 0)
+      .map((row, index) => ({
+        id: `${row.applicationNumber}-${row.requestedItem}-${index}`,
+        applicationNumber: row.applicationNumber || parseAppAndName(row.beneficiaryName).appNo,
+        beneficiaryName: parseAppAndName(row.beneficiaryName).name || row.beneficiaryName,
+        aadharNumber: row.aadharNumber,
+        item: row.requestedItem,
+        waitingHallQuantity: row.waitingHallQuantity,
+        district: row.district,
+        tokenStartNo: row.startTokenNo,
+        tokenEndNo: row.endTokenNo,
+        mobile: '0',
+        address: 'Add',
+        notes: row.notes,
+      }));
+    setPublicAckRows(next);
+  }, [generatedRows]);
+
+  const updatePublicAckRow = (
+    id: string,
+    field:
+      | 'beneficiaryName'
+      | 'aadharNumber'
+      | 'item'
+      | 'waitingHallQuantity'
+      | 'district'
+      | 'mobile'
+      | 'address'
+      | 'notes',
+    value: string
+  ) => {
+    setPublicAckRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        if (field === 'waitingHallQuantity') {
+          return { ...row, waitingHallQuantity: Math.max(0, Math.floor(Number(value) || 0)) };
+        }
+        return { ...row, [field]: value };
+      })
+    );
+  };
+
+  const handleUploadPublicDetails = async (file: File) => {
+    try {
+      setIsLoadingPublicDetails(true);
+      const rows: Record<string, any>[] = [];
+
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const text = await file.text();
+        const parsed = parseCSVRows(text);
+        if (parsed.length < 2) {
+          showWarning('Public details CSV is empty.');
+          return;
+        }
+        const headers = parsed[0].map((h) => String(h || '').trim());
+        parsed.slice(1).forEach((cells) => {
+          const row: Record<string, any> = {};
+          headers.forEach((header, idx) => {
+            row[header] = cells[idx] ?? '';
+          });
+          rows.push(row);
+        });
+      } else if (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls')) {
+        const workbook = new ExcelJS.Workbook();
+        const buffer = await file.arrayBuffer();
+        await workbook.xlsx.load(buffer);
+        const ws = workbook.worksheets[0];
+        if (!ws || ws.rowCount < 2) {
+          showWarning('Public details Excel is empty.');
+          return;
+        }
+
+        const headerRow = ws.getRow(1);
+        const headers: string[] = [];
+        headerRow.eachCell({ includeEmpty: true }, (cell, col) => {
+          headers[col - 1] = String(cell.value ?? '').trim();
+        });
+
+        for (let r = 2; r <= ws.rowCount; r += 1) {
+          const row = ws.getRow(r);
+          const obj: Record<string, any> = {};
+          headers.forEach((header, idx) => {
+            const cellVal = row.getCell(idx + 1).value as any;
+            if (cellVal && typeof cellVal === 'object' && 'result' in cellVal) obj[header] = String(cellVal.result ?? '');
+            else if (cellVal && typeof cellVal === 'object' && 'text' in cellVal) obj[header] = String(cellVal.text ?? '');
+            else obj[header] = String(cellVal ?? '');
+          });
+          rows.push(obj);
+        }
+      } else {
+        showWarning('Upload CSV or Excel file for Public Details.');
+        return;
+      }
+
+      const detailsByKey = new Map<string, { aadhar: string; mobile: string; address: string }>();
+      rows.forEach((row) => {
+        const appKey = findObjectKey(row, ['App. No.', 'Application Number', 'App No']);
+        const nameKey = findObjectKey(row, ['Name', 'Beneficiary Name']);
+        const qtyKey = findObjectKey(row, ['QUANTITY', 'Quantity']);
+        const aadharKey = findObjectKey(row, ['Aadhar (Without Space)', 'Aadhar', 'Aadhaar']);
+        const addressKey = findObjectKey(row, ['Address']);
+        const mobileKey = findObjectKey(row, ['Mobile', 'Mobile No']);
+
+        const qty = qtyKey ? parseNumber(row[qtyKey]) : 1;
+        if (qty === 0) return;
+
+        const appNo = String(appKey ? row[appKey] : '').trim();
+        const name = String(nameKey ? row[nameKey] : '').trim();
+        if (!appNo || !name) return;
+
+        detailsByKey.set(`${normalizeText(appNo)}||${normalizeText(name)}`, {
+          aadhar: String(aadharKey ? row[aadharKey] : '').trim(),
+          mobile: String(mobileKey ? row[mobileKey] : '').trim(),
+          address: String(addressKey ? row[addressKey] : '').trim(),
+        });
+      });
+
+      setPublicAckRows((prev) =>
+        prev.map((row) => {
+          const key = `${normalizeText(row.applicationNumber)}||${normalizeText(row.beneficiaryName)}`;
+          const details = detailsByKey.get(key);
+          if (!details) return row;
+          return {
+            ...row,
+            aadharNumber: details.aadhar || row.aadharNumber || '0',
+            mobile: details.mobile || row.mobile || '0',
+            address: details.address || row.address || 'Add',
+          };
+        })
+      );
+
+      setPublicDetailsFileName(file.name);
+      showSuccess('Public details merged into acknowledgment form rows.');
+    } catch (error) {
+      console.error('Failed to load public details file:', error);
+      showError('Failed to load public details file.');
+    } finally {
+      setIsLoadingPublicDetails(false);
+    }
+  };
 
   const handleLoadFromDb = async () => {
     try {
@@ -556,29 +735,30 @@ const Phase2TokenModule: React.FC = () => {
   };
 
   const exportPublicAcknowledgment = () => {
-    const publicRows = generatedRows.filter((r) => normalizeText(r.beneficiaryType) === 'public' && r.waitingHallQuantity > 0);
-    if (!publicRows.length) {
+    if (!publicAckRows.length) {
       showWarning('No public waiting-hall rows found.');
       return;
     }
 
     exportToCSV(
-      publicRows.map((row) => ({
+      publicAckRows.map((row) => ({
         'Application Number': row.applicationNumber,
         'Name of Beneficiary': row.beneficiaryName,
         'Aadhar No': row.aadharNumber,
-        Item: row.requestedItem,
+        Mobile: row.mobile,
+        Address: row.address,
+        Item: row.item,
         'Waiting Hall Quantity': row.waitingHallQuantity,
         District: row.district,
-        'Token Start No.': row.startTokenNo,
-        'Token End No.': row.endTokenNo,
+        'Token Start No.': row.tokenStartNo,
+        'Token End No.': row.tokenEndNo,
         Notes: row.notes,
       })),
       'Public_Acknowledgment_Autofill',
-      ['Application Number', 'Name of Beneficiary', 'Aadhar No', 'Item', 'Waiting Hall Quantity', 'District', 'Token Start No.', 'Token End No.', 'Notes'],
+      ['Application Number', 'Name of Beneficiary', 'Aadhar No', 'Mobile', 'Address', 'Item', 'Waiting Hall Quantity', 'District', 'Token Start No.', 'Token End No.', 'Notes'],
       showWarning
     );
-    showSuccess('Public acknowledgment autofill file exported.');
+    showSuccess('Public acknowledgment file exported (with edits).');
   };
 
   return (
@@ -750,6 +930,91 @@ const Phase2TokenModule: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 shadow-sm">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Public Acknowledgment (Editable)</h2>
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <button
+            type="button"
+            onClick={() => publicDetailsFileInputRef.current?.click()}
+            disabled={isLoadingPublicDetails}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 dark:text-indigo-300 text-sm hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-50"
+          >
+            <FileUp className="w-4 h-4" />
+            {isLoadingPublicDetails ? 'Loading Public Details...' : 'Upload Public Details (CSV/XLSX)'}
+          </button>
+          {publicDetailsFileName ? (
+            <span className="text-xs text-gray-600 dark:text-gray-300">Merged file: <strong>{publicDetailsFileName}</strong></span>
+          ) : null}
+          <input
+            ref={publicDetailsFileInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleUploadPublicDetails(file);
+              e.currentTarget.value = '';
+            }}
+          />
+        </div>
+        <div className="max-h-72 overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+          {publicAckRows.length === 0 ? (
+            <div className="p-3 text-sm text-gray-500 dark:text-gray-400">No public waiting-hall rows found.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th className="p-2 text-left">App No</th>
+                  <th className="p-2 text-left">Name</th>
+                  <th className="p-2 text-left">Aadhar</th>
+                  <th className="p-2 text-left">Mobile</th>
+                  <th className="p-2 text-left">Address</th>
+                  <th className="p-2 text-left">Item</th>
+                  <th className="p-2 text-left">Waiting</th>
+                  <th className="p-2 text-left">District</th>
+                  <th className="p-2 text-left">Token Start</th>
+                  <th className="p-2 text-left">Token End</th>
+                  <th className="p-2 text-left">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {publicAckRows.map((row) => (
+                  <tr key={row.id} className="border-t border-gray-100 dark:border-gray-800">
+                    <td className="p-2 whitespace-nowrap">{row.applicationNumber}</td>
+                    <td className="p-1">
+                      <input value={row.beneficiaryName} onChange={(e) => updatePublicAckRow(row.id, 'beneficiaryName', e.target.value)} className="w-44 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-1">
+                      <input value={row.aadharNumber} onChange={(e) => updatePublicAckRow(row.id, 'aadharNumber', e.target.value)} className="w-32 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-1">
+                      <input value={row.mobile} onChange={(e) => updatePublicAckRow(row.id, 'mobile', e.target.value)} className="w-28 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-1">
+                      <input value={row.address} onChange={(e) => updatePublicAckRow(row.id, 'address', e.target.value)} className="w-44 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-1">
+                      <input value={row.item} onChange={(e) => updatePublicAckRow(row.id, 'item', e.target.value)} className="w-40 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-1">
+                      <input type="number" min={0} value={row.waitingHallQuantity} onChange={(e) => updatePublicAckRow(row.id, 'waitingHallQuantity', e.target.value)} className="w-20 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-1">
+                      <input value={row.district} onChange={(e) => updatePublicAckRow(row.id, 'district', e.target.value)} className="w-28 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                    <td className="p-2 whitespace-nowrap">{row.tokenStartNo}</td>
+                    <td className="p-2 whitespace-nowrap">{row.tokenEndNo}</td>
+                    <td className="p-1">
+                      <input value={row.notes} onChange={(e) => updatePublicAckRow(row.id, 'notes', e.target.value)} className="w-44 px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 shadow-sm mt-3">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Quick Check</h2>
         <div className="text-sm text-gray-600 dark:text-gray-300 grid grid-cols-1 md:grid-cols-3 gap-2">
           <div>Total Waiting Hall Qty: <strong>{usableRows.reduce((sum, r) => sum + r.waitingHallQuantity, 0)}</strong></div>
