@@ -12,6 +12,20 @@ export interface BeneficiaryDropdownOption {
   id?: string; // Entry ID for district/institution entries to ensure uniqueness
 }
 
+const isAidItemType = (itemType: unknown): boolean => {
+  const value = String(itemType || '').trim().toLowerCase();
+  if (!value) return false;
+  return value === 'aid' || /\baid\b/.test(value);
+};
+
+const getRelatedArticle = (
+  related: any
+): { item_type?: string; article_name?: string; category?: string } | null => {
+  if (!related) return null;
+  if (Array.isArray(related)) return related[0] || null;
+  return related;
+};
+
 /**
  * Fetch used beneficiaries from saved fund requests
  * Returns a Set of identifiers that have been used in fund requests
@@ -188,13 +202,14 @@ export const fetchDistrictBeneficiariesForDropdown = async (aidType?: string, di
         if (!appNumber) return;
 
         // Only include entries where article item_type is 'Aid'
-        const articleItemType = entry.articles?.item_type;
-        if (articleItemType !== 'Aid') return;
+        const article = getRelatedArticle(entry.articles);
+        const articleItemType = article?.item_type;
+        if (!isAidItemType(articleItemType)) return;
 
         // Filter by aid_type if provided (match article name or category)
         if (aidType && aidType.trim()) {
-          const articleName = entry.articles?.article_name?.toLowerCase() || '';
-          const articleCategory = entry.articles?.category?.toLowerCase() || '';
+          const articleName = article?.article_name?.toLowerCase() || '';
+          const articleCategory = article?.category?.toLowerCase() || '';
           const aidTypeLower = aidType.toLowerCase();
           
           const matchesName = articleName.includes(aidTypeLower);
@@ -205,7 +220,7 @@ export const fetchDistrictBeneficiariesForDropdown = async (aidType?: string, di
 
         const districtName = entry.district_master?.district_name || '';
         const amount = parseFloat(entry.total_amount) || 0;
-        const aidTypeName = entry.articles?.article_name || 'Unknown Aid';
+        const aidTypeName = article?.article_name || 'Unknown Aid';
         const notes = entry.notes || '';
         const entryId = entry.id || '';
 
@@ -240,13 +255,14 @@ export const fetchDistrictBeneficiariesForDropdown = async (aidType?: string, di
         if (!appNumber) return;
 
         // Only include entries where article item_type is 'Aid'
-        const articleItemType = entry.articles?.item_type;
-        if (articleItemType !== 'Aid') return;
+        const article = getRelatedArticle(entry.articles);
+        const articleItemType = article?.item_type;
+        if (!isAidItemType(articleItemType)) return;
 
         // Filter by aid_type if provided (match article name or category)
         if (aidType && aidType.trim()) {
-          const articleName = entry.articles?.article_name?.toLowerCase() || '';
-          const articleCategory = entry.articles?.category?.toLowerCase() || '';
+          const articleName = article?.article_name?.toLowerCase() || '';
+          const articleCategory = article?.category?.toLowerCase() || '';
           const aidTypeLower = aidType.toLowerCase();
           
           const matchesName = articleName.includes(aidTypeLower);
@@ -294,7 +310,7 @@ export const fetchDistrictBeneficiariesForDropdown = async (aidType?: string, di
  */
 export const fetchPublicBeneficiariesForDropdown = async (aidType?: string): Promise<BeneficiaryDropdownOption[]> => {
   try {
-    const { data, error } = await supabase
+    let queryResult: { data: any[] | null; error: any } = await supabase
       .from('public_beneficiary_entries')
       .select(`
         application_number,
@@ -309,6 +325,26 @@ export const fetchPublicBeneficiariesForDropdown = async (aidType?: string): Pro
       `)
       .not('application_number', 'is', null)
       .order('application_number', { ascending: false });
+
+    // Fallback for DB/schema contexts where aadhar_number projection fails.
+    if (queryResult.error) {
+      queryResult = await supabase
+        .from('public_beneficiary_entries')
+        .select(`
+          application_number,
+          name,
+          total_amount,
+          articles:article_id (
+            item_type,
+            article_name,
+            category
+          )
+        `)
+        .not('application_number', 'is', null)
+        .order('application_number', { ascending: false });
+    }
+
+    const { data, error } = queryResult;
 
     if (error) {
       console.error('Error fetching public beneficiaries:', error);
@@ -327,13 +363,14 @@ export const fetchPublicBeneficiariesForDropdown = async (aidType?: string): Pro
       if (!appNumber) return;
 
       // Only include entries where article item_type is 'Aid'
-      const articleItemType = entry.articles?.item_type;
-      if (articleItemType !== 'Aid') return;
+      const article = getRelatedArticle(entry.articles);
+      const articleItemType = article?.item_type;
+      if (!isAidItemType(articleItemType)) return;
 
       // Filter by aid_type if provided (match article name or category)
       if (aidType && aidType.trim()) {
-        const articleName = entry.articles?.article_name?.toLowerCase() || '';
-        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const articleName = article?.article_name?.toLowerCase() || '';
+        const articleCategory = article?.category?.toLowerCase() || '';
         const aidTypeLower = aidType.toLowerCase();
         
         const matchesName = articleName.includes(aidTypeLower);
@@ -418,13 +455,14 @@ export const fetchInstitutionBeneficiariesForDropdown = async (aidType?: string)
       if (!appNumber) return;
 
       // Only include entries where article item_type is 'Aid'
-      const articleItemType = entry.articles?.item_type;
-      if (articleItemType !== 'Aid') return;
+      const article = getRelatedArticle(entry.articles);
+      const articleItemType = article?.item_type;
+      if (!isAidItemType(articleItemType)) return;
 
       // Filter by aid_type if provided (match article name or category)
       if (aidType && aidType.trim()) {
-        const articleName = entry.articles?.article_name?.toLowerCase() || '';
-        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const articleName = article?.article_name?.toLowerCase() || '';
+        const articleCategory = article?.category?.toLowerCase() || '';
         const aidTypeLower = aidType.toLowerCase();
         
         const matchesName = articleName.includes(aidTypeLower);
@@ -435,7 +473,7 @@ export const fetchInstitutionBeneficiariesForDropdown = async (aidType?: string)
 
       const institutionName = entry.institution_name || '';
       const amount = parseFloat(entry.total_amount) || 0;
-      const aidTypeName = entry.articles?.article_name || 'Unknown Aid';
+      const aidTypeName = article?.article_name || 'Unknown Aid';
       const notes = entry.notes || '';
       const entryId = entry.id || '';
 
@@ -507,13 +545,14 @@ export const fetchOthersBeneficiariesForDropdown = async (aidType?: string): Pro
       if (!appNumber) return;
 
       // Only include entries where article item_type is 'Aid'
-      const articleItemType = entry.articles?.item_type;
-      if (articleItemType !== 'Aid') return;
+      const article = getRelatedArticle(entry.articles);
+      const articleItemType = article?.item_type;
+      if (!isAidItemType(articleItemType)) return;
 
       // Filter by aid_type if provided (match article name or category)
       if (aidType && aidType.trim()) {
-        const articleName = entry.articles?.article_name?.toLowerCase() || '';
-        const articleCategory = entry.articles?.category?.toLowerCase() || '';
+        const articleName = article?.article_name?.toLowerCase() || '';
+        const articleCategory = article?.category?.toLowerCase() || '';
         const aidTypeLower = aidType.toLowerCase();
         
         const matchesName = articleName.includes(aidTypeLower);

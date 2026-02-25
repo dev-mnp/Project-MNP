@@ -170,21 +170,25 @@ export const updateSeatAllocationSequenceData = async (
 ): Promise<void> => {
   if (!rows.length) return;
 
-  const payload = rows.map((row) => ({
-    id: row.id,
-    master_row: row.master_row,
-    master_headers: row.master_headers,
-    updated_by: null,
-  }));
-
-  const batchSize = 250;
-  for (let i = 0; i < payload.length; i += batchSize) {
-    const batch = payload.slice(i, i + batchSize);
+  const batchSize = 100;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
     await withTimeoutAndRetry(async () => {
-      const { error } = await supabase
-        .from('seat_allocation')
-        .upsert(batch, { onConflict: 'id' });
-      if (error) throw error;
+      const results = await Promise.all(
+        batch.map((row) =>
+          supabase
+            .from('seat_allocation')
+            .update({
+              master_row: row.master_row,
+              master_headers: row.master_headers,
+              updated_by: null,
+            })
+            .eq('id', row.id)
+        )
+      );
+
+      const failed = results.find((result) => result.error);
+      if (failed?.error) throw failed.error;
       return true;
     }, 1, 30000);
   }

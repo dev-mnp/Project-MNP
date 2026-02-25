@@ -210,6 +210,7 @@ const Phase2SequenceList: React.FC = () => {
   const [sourceFileName, setSourceFileName] = useState('');
   const [includeOnlyTokenRows, setIncludeOnlyTokenRows] = useState(true);
   const [sequenceStart, setSequenceStart] = useState(1);
+  const [unassignedSearch, setUnassignedSearch] = useState('');
   const [sourceRows, setSourceRows] = useState<SequenceSourceRow[]>([]);
 
   const sequence2025Map = useMemo(
@@ -226,6 +227,11 @@ const Phase2SequenceList: React.FC = () => {
 
   const uniqueItemCount = assignedItems.length + unassignedItems.length;
   const dataRowCount = sourceRows.length;
+  const filteredUnassignedItems = useMemo(() => {
+    const q = unassignedSearch.trim().toLowerCase();
+    if (!q) return unassignedItems;
+    return unassignedItems.filter((item) => item.toLowerCase().includes(q));
+  }, [unassignedItems, unassignedSearch]);
 
   const sequenceByItem = useMemo(() => {
     const start = Number.isFinite(sequenceStart) && sequenceStart > 0 ? Math.floor(sequenceStart) : 1;
@@ -702,15 +708,35 @@ const Phase2SequenceList: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-3">
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-800 dark:text-gray-100">
-            Unassigned Items (sorted by suggested order)
+          <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">Unassigned Items</div>
+            <div className="relative w-52 max-w-full">
+              <input
+                type="text"
+                value={unassignedSearch}
+                onChange={(e) => setUnassignedSearch(e.target.value)}
+                placeholder="Search items..."
+                className="w-full px-2.5 py-1 pr-7 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              />
+              {unassignedSearch && (
+                <button
+                  type="button"
+                  onClick={() => setUnassignedSearch('')}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 text-xs px-1"
+                  aria-label="Clear search"
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
           <div className="max-h-[65vh] overflow-auto p-2">
-            {unassignedItems.length === 0 ? (
+            {filteredUnassignedItems.length === 0 ? (
               <div className="text-sm text-gray-500 dark:text-gray-400 p-2">No unassigned items.</div>
             ) : (
               <div className="space-y-1">
-                {unassignedItems.map((item) => (
+                {filteredUnassignedItems.map((item) => (
                   <label key={item} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
                     <input
                       type="checkbox"

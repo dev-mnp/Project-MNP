@@ -38,6 +38,17 @@ interface RecipientFormData extends Omit<FundRequestRecipient, 'id' | 'fund_requ
   selectedDistrictId?: string;
 }
 
+const isValidUUID = (value?: string): boolean => {
+  if (!value) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+};
+
+const getBeneficiaryLoadKey = (
+  type: 'District' | 'Public' | 'Institutions' | 'Others',
+  aidType?: string,
+  districtId?: string
+): string => `${type}::${(aidType || '').trim().toLowerCase()}::${districtId || ''}`;
+
 const getAppNumberFromDisplay = (value: string): string => {
   const match = value.match(/^([^-]+)/);
   return match ? match[1].trim() : '';
@@ -122,6 +133,7 @@ const FundRequestForm: React.FC = () => {
   // Districts (for district filter in Aid)
   const [districts, setDistricts] = useState<District[]>([]);
   const [loadingDistricts, setLoadingDistricts] = useState(false);
+  const beneficiaryRequestCacheRef = useRef<Map<string, BeneficiaryDropdownOption[]>>(new Map());
 
   // Auto-save refs
   const isInitialMount = useRef(true);
@@ -265,13 +277,20 @@ const FundRequestForm: React.FC = () => {
   // Reload beneficiaries when aid_type changes
   useEffect(() => {
     if (fundRequestType === 'Aid' && formData.aid_type) {
-      // Clear cache and reload beneficiaries for all recipients
+      // Clear cache and reload beneficiaries once per unique filter key
       setBeneficiaryCache({});
-      recipients.forEach((_, index) => {
-        const recipient = recipients[index];
-        if (recipient?.beneficiaryType) {
-          loadBeneficiaries(recipient.beneficiaryType, index);
-        }
+      beneficiaryRequestCacheRef.current.clear();
+      const seen = new Set<string>();
+      recipients.forEach((recipient, index) => {
+        if (!recipient?.beneficiaryType) return;
+        const safeDistrictId =
+          recipient.beneficiaryType === 'District' && isValidUUID(recipient.selectedDistrictId)
+            ? recipient.selectedDistrictId
+            : undefined;
+        const key = getBeneficiaryLoadKey(recipient.beneficiaryType, formData.aid_type, safeDistrictId);
+        if (seen.has(key)) return;
+        seen.add(key);
+        void loadBeneficiaries(recipient.beneficiaryType, index, safeDistrictId);
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -570,7 +589,9 @@ const FundRequestForm: React.FC = () => {
     const currentAidType = formData.aid_type;
     // Get selected district ID - use provided parameter or from current recipient state
     const currentRecipient = recipients[recipientIndex];
-    const selectedDistrictId = districtId !== undefined ? districtId : currentRecipient?.selectedDistrictId;
+    const rawDistrictId = districtId !== undefined ? districtId : currentRecipient?.selectedDistrictId;
+    const selectedDistrictId = type === 'District' && isValidUUID(rawDistrictId) ? rawDistrictId : undefined;
+    const requestKey = getBeneficiaryLoadKey(type, currentAidType, selectedDistrictId);
     
     // Check cache first (but only if no aid_type filter and no district filter is applied)
     // When district is selected, we need individual entries with aid types, not grouped cache
@@ -629,6 +650,20 @@ const FundRequestForm: React.FC = () => {
       return;
     }
 
+    const cachedByRequestKey = beneficiaryRequestCacheRef.current.get(requestKey);
+    if (cachedByRequestKey) {
+      setRecipients(prev => {
+        const updated = [...prev];
+        updated[recipientIndex] = {
+          ...updated[recipientIndex],
+          beneficiaryOptions: cachedByRequestKey,
+          loadingBeneficiaries: false,
+        };
+        return updated;
+      });
+      return;
+    }
+
     // Set loading state
     setRecipients(prev => {
       const updated = [...prev];
@@ -662,6 +697,7 @@ const FundRequestForm: React.FC = () => {
       if (!currentAidType && !selectedDistrictId) {
         setBeneficiaryCache(prev => ({ ...prev, [type]: data }));
       }
+      beneficiaryRequestCacheRef.current.set(requestKey, data);
 
       // Filter out already selected beneficiaries (current session + saved)
       // Use functional update to get latest state
@@ -1112,12 +1148,20 @@ const FundRequestForm: React.FC = () => {
 
   // Keep dropdown options in sync after select/reselect so availability updates immediately.
   useEffect(() => {
+    const seen = new Set<string>();
     recipients.forEach((recipient, idx) => {
       if (!recipient.beneficiaryType || recipient.loadingBeneficiaries) return;
-      void loadBeneficiaries(recipient.beneficiaryType, idx, recipient.selectedDistrictId);
+      const safeDistrictId =
+        recipient.beneficiaryType === 'District' && isValidUUID(recipient.selectedDistrictId)
+          ? recipient.selectedDistrictId
+          : undefined;
+      const key = getBeneficiaryLoadKey(recipient.beneficiaryType, formData.aid_type, safeDistrictId);
+      if (seen.has(key)) return;
+      seen.add(key);
+      void loadBeneficiaries(recipient.beneficiaryType, idx, safeDistrictId);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBeneficiaries, usedBeneficiaries]);
+  }, [selectedBeneficiaries, usedBeneficiaries, formData.aid_type]);
 
   const handleBeneficiaryTypeChange = (index: number, type: 'District' | 'Public' | 'Institutions' | 'Others' | undefined) => {
     const updated = [...recipients];

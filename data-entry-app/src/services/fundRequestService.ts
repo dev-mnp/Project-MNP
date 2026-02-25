@@ -1,6 +1,5 @@
 import { supabase } from '../lib/supabase';
 import { logAction } from './auditLogService';
-import { createOrderEntry, type OrderEntry } from './orderService';
 import { fetchAllArticles } from './articlesService';
 
 export interface FundRequest {
@@ -80,6 +79,35 @@ const getCurrentUserId = async (): Promise<string | null> => {
   }
 };
 
+const isAidItemType = (itemType: unknown): boolean => {
+  const value = String(itemType || '').trim().toLowerCase();
+  if (!value) return false;
+  return value === 'aid' || /\baid\b/.test(value);
+};
+
+type OrderInsertRow = {
+  article_id: string;
+  quantity_ordered: number;
+  order_date: string;
+  status: 'pending' | 'ordered' | 'received' | 'cancelled';
+  supplier_name: string | null;
+  supplier_contact: string | null;
+  unit_price: number;
+  total_amount: number;
+  notes: string;
+  fund_request_id: string;
+};
+
+const insertOrderEntriesForFundRequest = async (entries: OrderInsertRow[]): Promise<void> => {
+  if (entries.length === 0) return;
+
+  const { error } = await supabase.from('order_entries').insert(entries);
+  if (error) {
+    console.error('Error creating order entries:', error);
+    throw error;
+  }
+};
+
 /**
  * Find aid article by matching aid_type with articles
  * Uses multiple matching strategies for better accuracy
@@ -87,7 +115,7 @@ const getCurrentUserId = async (): Promise<string | null> => {
 const findAidArticle = async (aidType: string): Promise<{ id: string; article_name: string } | null> => {
   try {
     const allArticles = await fetchAllArticles(true);
-    const aidArticles = allArticles.filter(article => article.item_type === 'Aid');
+    const aidArticles = allArticles.filter(article => isAidItemType(article.item_type));
     
     if (aidArticles.length === 0) {
       console.warn('No Aid articles found in database');
@@ -522,8 +550,7 @@ export const createFundRequest = async (data: {
 
           if (aidArticle) {
             // Create order entries for each recipient
-            const orderPromises = recipients.map(recipient => {
-              const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+            const orderRows: OrderInsertRow[] = recipients.map(recipient => ({
                 article_id: aidArticle.id,
                 quantity_ordered: 1, // Aid is per recipient
                 order_date: new Date().toISOString().split('T')[0],
@@ -534,12 +561,10 @@ export const createFundRequest = async (data: {
                 total_amount: parseFloat(recipient.fund_requested) || 0,
                 notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
                 fund_request_id: fundRequest.id,
-              };
-              return createOrderEntry(orderData);
-            });
+              }));
 
-            await Promise.all(orderPromises);
-            console.log(`Created ${orderPromises.length} order entries for Aid fund request: ${fundRequest.fund_request_number}`);
+            await insertOrderEntriesForFundRequest(orderRows);
+            console.log(`Created ${orderRows.length} order entries for Aid fund request: ${fundRequest.fund_request_number}`);
           } else {
             console.warn(`No Aid article found matching aid_type: ${data.fundRequest.aid_type}. Order entries not created.`);
           }
@@ -585,8 +610,7 @@ export const createFundRequest = async (data: {
       // Create order entries for each article
       if (articles && articles.length > 0) {
         try {
-          const orderPromises = articles.map(article => {
-            const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+          const orderRows: OrderInsertRow[] = articles.map(article => ({
               article_id: article.article_id,
               quantity_ordered: article.quantity,
               order_date: new Date().toISOString().split('T')[0],
@@ -597,11 +621,9 @@ export const createFundRequest = async (data: {
               total_amount: article.value,
               notes: `Created from Fund Request: ${fundRequest.fund_request_number}`,
               fund_request_id: fundRequest.id,
-            };
-            return createOrderEntry(orderData);
-          });
+            }));
 
-          await Promise.all(orderPromises);
+          await insertOrderEntriesForFundRequest(orderRows);
         } catch (orderError) {
           console.error('Error creating order entries:', orderError);
           // Don't throw - order creation failure shouldn't fail fund request creation
@@ -715,8 +737,7 @@ export const updateFundRequest = async (
 
             if (aidArticle) {
               // Create order entries for each recipient
-              const orderPromises = recipients.map(recipient => {
-                const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+              const orderRows: OrderInsertRow[] = recipients.map(recipient => ({
                   article_id: aidArticle.id,
                   quantity_ordered: 1, // Aid is per recipient
                   order_date: new Date().toISOString().split('T')[0],
@@ -727,12 +748,10 @@ export const updateFundRequest = async (
                   total_amount: parseFloat(recipient.fund_requested) || 0,
                   notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
                   fund_request_id: id,
-                };
-                return createOrderEntry(orderData);
-              });
+                }));
 
-              await Promise.all(orderPromises);
-              console.log(`Created ${orderPromises.length} order entries for Aid fund request update: ${fundRequest.fund_request_number}`);
+              await insertOrderEntriesForFundRequest(orderRows);
+              console.log(`Created ${orderRows.length} order entries for Aid fund request update: ${fundRequest.fund_request_number}`);
             } else {
               console.warn(`No Aid article found matching aid_type: ${updatedFundRequest.aid_type}. Order entries not created.`);
             }
@@ -800,8 +819,7 @@ export const updateFundRequest = async (
         // Create order entries for each article
         if (articles && articles.length > 0) {
           try {
-            const orderPromises = articles.map(article => {
-              const orderData: Omit<OrderEntry, 'id' | 'created_at' | 'updated_at'> = {
+            const orderRows: OrderInsertRow[] = articles.map(article => ({
                 article_id: article.article_id,
                 quantity_ordered: article.quantity,
                 order_date: new Date().toISOString().split('T')[0],
@@ -812,11 +830,9 @@ export const updateFundRequest = async (
                 total_amount: article.value,
                 notes: `Created from Fund Request: ${fundRequest.fund_request_number}`,
                 fund_request_id: id,
-              };
-              return createOrderEntry(orderData);
-            });
+              }));
 
-            await Promise.all(orderPromises);
+            await insertOrderEntriesForFundRequest(orderRows);
           } catch (orderError) {
             console.error('Error creating order entries:', orderError);
             // Don't throw - order creation failure shouldn't fail fund request update
