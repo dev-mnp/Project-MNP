@@ -74,6 +74,11 @@ function readEnv(name) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function isMyDrivePath(targetPathRaw = '') {
+  const normalizedPath = String(targetPathRaw).replace(/\\/g, '/').trim();
+  return /^\/?My Drive(\/|$)/i.test(normalizedPath) || normalizedPath.includes('/My Drive/');
+}
+
 function writeCsv(filePath, headers, rows) {
   const lines = [headers.map(escapeCsv).join(',')];
   for (const row of rows) {
@@ -549,12 +554,21 @@ async function main() {
     return;
   }
 
-  if (!process.env.GOOGLE_DRIVE_TARGET_PATH) {
-    throw new Error('Missing GOOGLE_DRIVE_TARGET_PATH');
+  const targetFolderId = readEnv('GOOGLE_DRIVE_TARGET_FOLDER_ID');
+  const targetPath = readEnv('GOOGLE_DRIVE_TARGET_PATH');
+
+  if (!targetFolderId && !targetPath) {
+    throw new Error('Missing target destination. Set GOOGLE_DRIVE_TARGET_FOLDER_ID or GOOGLE_DRIVE_TARGET_PATH');
+  }
+
+  if (GOOGLE_AUTH_MODE === 'service_account' && !targetFolderId && isMyDrivePath(targetPath)) {
+    throw new Error(
+      'Service-account mode cannot upload to My Drive paths. Use a Shared Drive folder ID via GOOGLE_DRIVE_TARGET_FOLDER_ID, or switch to oauth_user.'
+    );
   }
 
   const drive = await getDriveClient();
-  const folderId = await ensureDriveFolderPath(drive, process.env.GOOGLE_DRIVE_TARGET_PATH);
+  const folderId = targetFolderId || (await ensureDriveFolderPath(drive, targetPath));
   for (const filePath of outputFiles) {
     await uploadToDrive(drive, folderId, filePath);
   }
