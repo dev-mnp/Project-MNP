@@ -151,62 +151,92 @@ const FundRequestForm: React.FC = () => {
   });
   const draftNotificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const showDraftRestoredNotification = (timestamp: number) => {
+    const formattedTimestamp = formatDraftTimestamp(timestamp);
+    setDraftNotification({
+      isOpen: true,
+      timestamp: formattedTimestamp,
+    });
+
+    if (draftNotificationTimeoutRef.current) {
+      clearTimeout(draftNotificationTimeoutRef.current);
+    }
+    draftNotificationTimeoutRef.current = setTimeout(() => {
+      setDraftNotification({ isOpen: false, timestamp: '' });
+    }, 10000);
+  };
+
+  const restoreDraftState = (draft: NonNullable<ReturnType<typeof loadFundRequestDraft>>) => {
+    setFundRequestType(draft.fundRequestType);
+    setFormData(draft.formData);
+    const restoredRecipients: RecipientFormData[] = (draft.recipients || []).map(r => ({
+      beneficiaryType: r.beneficiaryType,
+      recipient_name: r.recipient_name || '',
+      beneficiary: r.beneficiary || '',
+      name_of_beneficiary: r.name_of_beneficiary || '',
+      name_of_institution: r.name_of_institution || '',
+      details: r.details || '',
+      fund_requested: r.fund_requested || 0,
+      aadhar_number: r.aadhar_number || '',
+      address: r.address || '',
+      cheque_in_favour: r.cheque_in_favour || '',
+      cheque_no: r.cheque_no || '',
+      notes: r.notes || '',
+      district_name: r.district_name,
+    }));
+    setRecipients(restoredRecipients);
+    setSelectedArticles(draft.selectedArticles || []);
+    setGstNumber(draft.gstNumber || '');
+    setSupplierName(draft.supplierName || '');
+    setSupplierAddress(draft.supplierAddress || '');
+    setSupplierCity(draft.supplierCity || '');
+    setSupplierState(draft.supplierState || '');
+    setSupplierPincode(draft.supplierPincode || '');
+
+    if (draft.articleDetails && draft.articleDetails.length > 0) {
+      setArticleDetails(new Map(draft.articleDetails));
+    }
+    if (draft.selectedBeneficiaries && draft.selectedBeneficiaries.length > 0) {
+      setSelectedBeneficiaries(new Set(draft.selectedBeneficiaries));
+    }
+    showDraftRestoredNotification(draft.timestamp);
+  };
+
+  const buildDraftData = () => ({
+    fundRequestType,
+    formData,
+    recipients: recipients.map(r => ({
+      beneficiaryType: r.beneficiaryType,
+      recipient_name: r.recipient_name || '',
+      beneficiary: r.beneficiary || '',
+      name_of_beneficiary: r.name_of_beneficiary || '',
+      name_of_institution: r.name_of_institution || '',
+      details: r.details || '',
+      fund_requested: r.fund_requested || 0,
+      aadhar_number: r.aadhar_number || '',
+      address: r.address || '',
+      cheque_in_favour: r.cheque_in_favour || '',
+      cheque_no: r.cheque_no || '',
+      notes: r.notes || '',
+      district_name: r.district_name,
+    })),
+    selectedArticles,
+    gstNumber,
+    supplierName,
+    supplierAddress,
+    supplierCity,
+    supplierState,
+    supplierPincode,
+    articleDetails: Array.from(articleDetails.entries()),
+    selectedBeneficiaries: Array.from(selectedBeneficiaries),
+  });
+
   // Restore draft on mount (only for new forms)
   useEffect(() => {
     if (!id && !hasRestoredDraft.current) {
       const draft = loadFundRequestDraft();
       if (draft) {
-        // Auto-restore draft
-        setFundRequestType(draft.fundRequestType);
-        setFormData(draft.formData);
-        // Convert draft recipients to local RecipientFormData format
-        const restoredRecipients: RecipientFormData[] = (draft.recipients || []).map(r => ({
-          beneficiaryType: r.beneficiaryType,
-          recipient_name: r.recipient_name || '',
-          beneficiary: r.beneficiary || '',
-          name_of_beneficiary: r.name_of_beneficiary || '',
-          name_of_institution: r.name_of_institution || '',
-          details: r.details || '',
-          fund_requested: r.fund_requested || 0,
-          aadhar_number: r.aadhar_number || '',
-          address: r.address || '',
-          cheque_in_favour: r.cheque_in_favour || '',
-          cheque_no: r.cheque_no || '',
-          notes: r.notes || '',
-          district_name: r.district_name,
-        }));
-        setRecipients(restoredRecipients);
-        setSelectedArticles(draft.selectedArticles || []);
-        setGstNumber(draft.gstNumber || '');
-        setSupplierName(draft.supplierName || '');
-        setSupplierAddress(draft.supplierAddress || '');
-        setSupplierCity(draft.supplierCity || '');
-        setSupplierState(draft.supplierState || '');
-        setSupplierPincode(draft.supplierPincode || '');
-        
-        // Restore articleDetails Map
-        if (draft.articleDetails && draft.articleDetails.length > 0) {
-          const restoredMap = new Map(draft.articleDetails);
-          setArticleDetails(restoredMap);
-        }
-        
-        // Restore selectedBeneficiaries Set
-        if (draft.selectedBeneficiaries && draft.selectedBeneficiaries.length > 0) {
-          setSelectedBeneficiaries(new Set(draft.selectedBeneficiaries));
-        }
-
-        // Show notification with timestamp
-        const timestamp = formatDraftTimestamp(draft.timestamp);
-        setDraftNotification({
-          isOpen: true,
-          timestamp,
-        });
-
-        // Auto-dismiss after 10 seconds
-        draftNotificationTimeoutRef.current = setTimeout(() => {
-          setDraftNotification({ isOpen: false, timestamp: '' });
-        }, 10000);
-
+        restoreDraftState(draft);
         hasRestoredDraft.current = true;
       }
     }
@@ -346,8 +376,8 @@ const FundRequestForm: React.FC = () => {
 
   // Auto-save on state changes (debounced)
   useEffect(() => {
-    // Don't save on initial mount or if editing existing FR
-    if (isInitialMount.current || id) {
+    // Don't save on initial mount
+    if (isInitialMount.current) {
       return;
     }
 
@@ -376,36 +406,7 @@ const FundRequestForm: React.FC = () => {
     // Debounce save (500ms)
     autoSaveTimeoutRef.current = setTimeout(() => {
       try {
-        const draftData = {
-          fundRequestType,
-          formData,
-          recipients: recipients.map(r => ({
-            beneficiaryType: r.beneficiaryType,
-            recipient_name: r.recipient_name || '',
-            beneficiary: r.beneficiary || '',
-            name_of_beneficiary: r.name_of_beneficiary || '',
-            name_of_institution: r.name_of_institution || '',
-            details: r.details || '',
-            fund_requested: r.fund_requested || 0,
-            aadhar_number: r.aadhar_number || '',
-            address: r.address || '',
-            cheque_in_favour: r.cheque_in_favour || '',
-            cheque_no: r.cheque_no || '',
-            notes: r.notes || '',
-            district_name: r.district_name,
-          })),
-          selectedArticles,
-          gstNumber,
-          supplierName,
-          supplierAddress,
-          supplierCity,
-          supplierState,
-          supplierPincode,
-          articleDetails: Array.from(articleDetails.entries()),
-          selectedBeneficiaries: Array.from(selectedBeneficiaries),
-        };
-
-        saveFundRequestDraft(draftData);
+        saveFundRequestDraft(buildDraftData(), id);
       } catch (error) {
         console.error('Error auto-saving draft:', error);
       }
@@ -570,6 +571,13 @@ const FundRequestForm: React.FC = () => {
           if (data.supplier_city) setSupplierCity(data.supplier_city);
           if (data.supplier_state) setSupplierState(data.supplier_state);
           if (data.supplier_pincode) setSupplierPincode(data.supplier_pincode);
+        }
+
+        // If a local draft exists for this FR, prefer it over server state.
+        const draft = loadFundRequestDraft(id);
+        if (draft) {
+          restoreDraftState(draft);
+          hasRestoredDraft.current = true;
         }
       }
     } catch (error) {
@@ -906,6 +914,8 @@ const FundRequestForm: React.FC = () => {
     }
 
     try {
+      // Persist immediate local backup before network save starts.
+      saveFundRequestDraft(buildDraftData(), id);
       setSaving(true);
 
       const fundRequestData: Omit<FundRequest, 'id' | 'created_at' | 'updated_at'> = {
