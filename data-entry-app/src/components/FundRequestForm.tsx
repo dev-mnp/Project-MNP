@@ -1027,8 +1027,14 @@ const FundRequestForm: React.FC = () => {
   };
 
   const handleAddRecipient = (insertAfterIndex?: number) => {
+    const sourceIndex = insertAfterIndex !== undefined ? insertAfterIndex : recipients.length - 1;
+    const sourceRecipient = sourceIndex >= 0 ? recipients[sourceIndex] : undefined;
+
     const newRecipient: RecipientFormData = {
-      beneficiaryType: undefined,
+      beneficiaryType: sourceRecipient?.beneficiaryType,
+      selectedDistrictId: sourceRecipient?.selectedDistrictId,
+      district_name: sourceRecipient?.district_name,
+      loadingBeneficiaries: !!sourceRecipient?.beneficiaryType,
       recipient_name: '',
       beneficiary: '',
       name_of_beneficiary: '',
@@ -1041,14 +1047,27 @@ const FundRequestForm: React.FC = () => {
       notes: '',
     };
 
+    let newIndex = recipients.length;
     if (insertAfterIndex !== undefined) {
       // Insert after specific index
       const updated = [...recipients];
-      updated.splice(insertAfterIndex + 1, 0, newRecipient);
+      newIndex = insertAfterIndex + 1;
+      updated.splice(newIndex, 0, newRecipient);
       setRecipients(updated);
     } else {
       // Add to end
       setRecipients([...recipients, newRecipient]);
+    }
+
+    // Preload beneficiaries for the copied type/district so dropdown is ready.
+    if (newRecipient.beneficiaryType) {
+      const districtId =
+        newRecipient.beneficiaryType === 'District' && isValidUUID(newRecipient.selectedDistrictId)
+          ? newRecipient.selectedDistrictId
+          : undefined;
+      setTimeout(() => {
+        void loadBeneficiaries(newRecipient.beneficiaryType!, newIndex, districtId);
+      }, 0);
     }
   };
 
