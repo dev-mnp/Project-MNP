@@ -640,7 +640,24 @@ const FundRequestForm: React.FC = () => {
         if (type === 'District') {
           const detailedKey = getDistrictAidKey(option.display_text);
           const baseKey = getDistrictAidBaseKey(option.display_text);
-          return !allExcluded.has(detailedKey) && !allExcluded.has(baseKey);
+          if (allExcluded.has(detailedKey)) {
+            return false;
+          }
+
+          if (allExcluded.has(baseKey)) {
+            // Use base-key fallback only when there are no detailed-key matches
+            // for this app+aid group (legacy rows without notes/details).
+            const hasAnyDetailedMatchForSameBase = options.some((candidate) => {
+              if (getDistrictAidBaseKey(candidate.display_text) !== baseKey) return false;
+              return allExcluded.has(getDistrictAidKey(candidate.display_text));
+            });
+
+            if (!hasAnyDetailedMatchForSameBase) {
+              return false;
+            }
+          }
+
+          return true;
         }
         if (type === 'Institutions') {
           // For current in-form selections, exclude exact option only (allow multiple rows under same aid).

@@ -330,15 +330,16 @@ const resolveAidOrderTarget = async (
   recipient: { beneficiary_type?: string; beneficiary?: string },
   effectiveAidType?: string | null
 ): Promise<{ articleId: string; quantity: number } | null> => {
-  const resolvedFromMaster = await resolveAidTargetFromMasterEntry(recipient, effectiveAidType);
-  if (resolvedFromMaster) return resolvedFromMaster;
-
+  // Explicit aid_type in FR is authoritative; only fallback to master when absent/unresolvable.
   if (effectiveAidType) {
     const aidArticle = await findAidArticle(effectiveAidType);
     if (aidArticle?.id) {
       return { articleId: aidArticle.id, quantity: 1 };
     }
   }
+
+  const resolvedFromMaster = await resolveAidTargetFromMasterEntry(recipient, effectiveAidType);
+  if (resolvedFromMaster) return resolvedFromMaster;
 
   return null;
 };
