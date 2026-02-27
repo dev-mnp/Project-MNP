@@ -29,7 +29,7 @@ const getRelatedArticle = (
 /**
  * Fetch used beneficiaries from saved fund requests
  * Returns a Set of identifiers that have been used in fund requests
- * For District entries: returns full display_text
+ * For District entries: returns stable key "app_no::aid_name::amount::notes"
  * For Institutions entries: returns stable key "app_no::aid_name"
  * For other types: returns the application_number extracted from display text
  */
@@ -93,8 +93,26 @@ export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?
       }
     }
 
+    const getDistrictAidKey = (value: string): string => {
+      const parts = String(value || '').split(' - ').map((p) => p.trim()).filter(Boolean);
+      const appNo = (parts[0] || '').toLowerCase();
+      const aidName = (parts[1] || '').toLowerCase();
+      const amountRaw = (parts[2] || '').replace(/[^\d.]/g, '');
+      const amount = amountRaw ? String(Number(amountRaw)) : '';
+      const notes = parts.length > 3 ? parts.slice(3).join(' - ').toLowerCase() : '';
+      if (!appNo) return String(value || '').trim().toLowerCase();
+      return `${appNo}::${aidName}::${amount}::${notes}`;
+    };
+    const getDistrictAidBaseKey = (value: string): string => {
+      const parts = String(value || '').split(' - ').map((p) => p.trim()).filter(Boolean);
+      const appNo = (parts[0] || '').toLowerCase();
+      const aidName = (parts[1] || '').toLowerCase();
+      if (!appNo) return String(value || '').trim().toLowerCase();
+      return `${appNo}::${aidName}`;
+    };
+
     // Extract identifiers from beneficiary display text
-    // For District: use full display_text
+    // For District: use stable key app_no::aid_name::amount::notes
     // For Institutions: use stable key app_no::aid_name
     // For others: extract application_number from display text
     const usedIdentifiers = new Set<string>();
@@ -102,8 +120,8 @@ export const fetchUsedBeneficiariesForFundRequest = async (excludeFundRequestId?
     data.forEach((entry: any) => {
       if (entry.beneficiary) {
         if (entry.beneficiary_type === 'District') {
-          // For district entries, use full display_text
-          usedIdentifiers.add(entry.beneficiary);
+          usedIdentifiers.add(getDistrictAidKey(entry.beneficiary));
+          usedIdentifiers.add(getDistrictAidBaseKey(entry.beneficiary));
         } else if (entry.beneficiary_type === 'Institutions') {
           // For institution entries, build stable key: app_no::aid_name
           const beneficiaryText = String(entry.beneficiary || '').trim();

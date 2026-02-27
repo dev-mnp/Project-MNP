@@ -62,12 +62,31 @@ const getInstitutionAidKey = (value: string): string => {
   return value.trim().toLowerCase();
 };
 
+const getDistrictAidKey = (value: string): string => {
+  const parts = value.split(' - ').map((p) => p.trim()).filter(Boolean);
+  const appNo = (parts[0] || '').toLowerCase();
+  const aidName = (parts[1] || '').toLowerCase();
+  const amountRaw = (parts[2] || '').replace(/[^\d.]/g, '');
+  const amount = amountRaw ? String(Number(amountRaw)) : '';
+  const notes = parts.length > 3 ? parts.slice(3).join(' - ').toLowerCase() : '';
+  if (!appNo) return value.trim().toLowerCase();
+  return `${appNo}::${aidName}::${amount}::${notes}`;
+};
+
+const getDistrictAidBaseKey = (value: string): string => {
+  const parts = value.split(' - ').map((p) => p.trim()).filter(Boolean);
+  const appNo = (parts[0] || '').toLowerCase();
+  const aidName = (parts[1] || '').toLowerCase();
+  if (!appNo) return value.trim().toLowerCase();
+  return `${appNo}::${aidName}`;
+};
+
 const getTrackingKey = (
   type: 'District' | 'Public' | 'Institutions' | 'Others' | undefined,
   displayValue: string
 ): string => {
   if (!displayValue) return '';
-  if (type === 'District') return displayValue;
+  if (type === 'District') return getDistrictAidKey(displayValue);
   if (type === 'Institutions') return displayValue;
   return getAppNumberFromDisplay(displayValue);
 };
@@ -619,7 +638,9 @@ const FundRequestForm: React.FC = () => {
 
       return options.filter(option => {
         if (type === 'District') {
-          return !allExcluded.has(option.display_text);
+          const detailedKey = getDistrictAidKey(option.display_text);
+          const baseKey = getDistrictAidBaseKey(option.display_text);
+          return !allExcluded.has(detailedKey) && !allExcluded.has(baseKey);
         }
         if (type === 'Institutions') {
           // For current in-form selections, exclude exact option only (allow multiple rows under same aid).

@@ -85,6 +85,49 @@ const isAidItemType = (itemType: unknown): boolean => {
   return value === 'aid' || /\baid\b/.test(value);
 };
 
+const inferAidTypeFromRecipients = (
+  recipients: Array<{ beneficiary?: string; beneficiary_type?: string }> | undefined
+): string | null => {
+  if (!recipients || recipients.length === 0) return null;
+
+  for (const recipient of recipients) {
+    const text = String(recipient?.beneficiary || '').trim();
+    const type = String(recipient?.beneficiary_type || '').trim();
+    if (!text) continue;
+
+    // Common formats:
+    // "D056 - Education Aid - ₹ 20,000 - Name"
+    // "I019 - Environment Aid - ₹ 30,000"
+    if (type === 'District' || type === 'Institutions' || type === 'Others') {
+      const parts = text.split(' - ').map((p) => p.trim()).filter(Boolean);
+      if (parts.length >= 2 && !/^₹/.test(parts[1])) {
+        return parts[1];
+      }
+    }
+  }
+
+  return null;
+};
+
+const parseBeneficiaryDisplay = (
+  value: unknown
+): { appNo: string | null; aidLabel: string } => {
+  const text = String(value || '').trim();
+  if (!text) return { appNo: null, aidLabel: '' };
+  const parts = text.split(' - ').map((p) => p.trim()).filter(Boolean);
+  return {
+    appNo: parts[0] || null,
+    aidLabel: parts[1] || '',
+  };
+};
+
+const textMatches = (a: unknown, b: unknown): boolean => {
+  const left = String(a || '').trim().toLowerCase();
+  const right = String(b || '').trim().toLowerCase();
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+};
+
 type OrderInsertRow = {
   article_id: string;
   quantity_ordered: number;
@@ -176,6 +219,120 @@ const findAidArticle = async (aidType: string): Promise<{ id: string; article_na
     console.error('Error finding Aid article:', error);
     return null;
   }
+};
+
+const resolveAidTargetFromMasterEntry = async (
+  recipient: { beneficiary_type?: string; beneficiary?: string },
+  preferredAidType?: string | null
+): Promise<{ articleId: string; quantity: number } | null> => {
+  const { appNo, aidLabel } = parseBeneficiaryDisplay(recipient.beneficiary);
+  if (!appNo) return null;
+
+  const aidHint = String(preferredAidType || aidLabel || '').trim();
+  const beneficiaryType = String(recipient.beneficiary_type || '').trim();
+
+  const pickAidRow = (rows: any[] | null | undefined): { article_id: string; quantity: number } | null => {
+    if (!rows || rows.length === 0) return null;
+
+    const normalized = rows
+      .map((row) => {
+        const article = Array.isArray(row.articles) ? row.articles[0] : row.articles;
+        return {
+          articleId: row.article_id,
+          quantity: Math.max(parseInt(row.quantity, 10) || 1, 1),
+          itemType: article?.item_type,
+          articleName: article?.article_name,
+          category: article?.category,
+        };
+      })
+      .filter((row) => isAidItemType(row.itemType));
+
+    if (normalized.length === 0) return null;
+
+    if (aidHint) {
+      const matched = normalized.find((row) =>
+        textMatches(row.articleName, aidHint) || textMatches(row.category, aidHint)
+      );
+      if (matched) {
+        return { article_id: matched.articleId, quantity: matched.quantity };
+      }
+    }
+
+    return { article_id: normalized[0].articleId, quantity: normalized[0].quantity };
+  };
+
+  if (beneficiaryType === 'District') {
+    const { data } = await supabase
+      .from('district_beneficiary_entries')
+      .select(`
+        article_id,
+        quantity,
+        articles:article_id (
+          item_type,
+          article_name,
+          category
+        )
+      `)
+      .eq('application_number', appNo)
+      .order('created_at', { ascending: false });
+    const picked = pickAidRow(data);
+    return picked ? { articleId: picked.article_id, quantity: picked.quantity } : null;
+  }
+
+  if (beneficiaryType === 'Public') {
+    const { data } = await supabase
+      .from('public_beneficiary_entries')
+      .select(`
+        article_id,
+        quantity,
+        articles:article_id (
+          item_type,
+          article_name,
+          category
+        )
+      `)
+      .eq('application_number', appNo)
+      .order('created_at', { ascending: false });
+    const picked = pickAidRow(data);
+    return picked ? { articleId: picked.article_id, quantity: picked.quantity } : null;
+  }
+
+  if (beneficiaryType === 'Institutions' || beneficiaryType === 'Others') {
+    const { data } = await supabase
+      .from('institutions_beneficiary_entries')
+      .select(`
+        article_id,
+        quantity,
+        articles:article_id (
+          item_type,
+          article_name,
+          category
+        )
+      `)
+      .eq('application_number', appNo)
+      .order('created_at', { ascending: false });
+    const picked = pickAidRow(data);
+    return picked ? { articleId: picked.article_id, quantity: picked.quantity } : null;
+  }
+
+  return null;
+};
+
+const resolveAidOrderTarget = async (
+  recipient: { beneficiary_type?: string; beneficiary?: string },
+  effectiveAidType?: string | null
+): Promise<{ articleId: string; quantity: number } | null> => {
+  const resolvedFromMaster = await resolveAidTargetFromMasterEntry(recipient, effectiveAidType);
+  if (resolvedFromMaster) return resolvedFromMaster;
+
+  if (effectiveAidType) {
+    const aidArticle = await findAidArticle(effectiveAidType);
+    if (aidArticle?.id) {
+      return { articleId: aidArticle.id, quantity: 1 };
+    }
+  }
+
+  return null;
 };
 
 /**
@@ -364,30 +521,6 @@ export const fetchFundRequests = async (filters?: {
   end_date?: string;
 }): Promise<FundRequest[]> => {
   try {
-    const inferAidTypeFromRecipients = (
-      recipients: Array<{ beneficiary?: string; beneficiary_type?: string }> | undefined
-    ): string | null => {
-      if (!recipients || recipients.length === 0) return null;
-
-      for (const recipient of recipients) {
-        const text = String(recipient?.beneficiary || '').trim();
-        const type = String(recipient?.beneficiary_type || '').trim();
-        if (!text) continue;
-
-        // District/Institutions beneficiary format usually includes aid name:
-        // "D056 - Education Aid - ₹ 20,000 - Name"
-        // "I019 - Environment Aid - ₹ 30,000"
-        if (type === 'District' || type === 'Institutions' || type === 'Others') {
-          const parts = text.split(' - ').map((p) => p.trim()).filter(Boolean);
-          if (parts.length >= 2 && !/^₹/.test(parts[1])) {
-            return parts[1];
-          }
-        }
-      }
-
-      return null;
-    };
-
     let query = supabase
       .from('fund_request')
       .select('*, fund_request_articles(article_name, supplier_article_name), fund_request_recipients(beneficiary, beneficiary_type)')
@@ -570,30 +703,41 @@ export const createFundRequest = async (data: {
       })) || [];
 
       // Create order entries for Aid fund requests
-      if (data.fundRequest.aid_type && recipients && recipients.length > 0) {
+      if (recipients && recipients.length > 0) {
         try {
-          // Find the article_id by matching aid_type with articles where item_type='Aid'
-          const aidArticle = await findAidArticle(data.fundRequest.aid_type);
+          const effectiveAidType =
+            String(data.fundRequest.aid_type || '').trim() ||
+            inferAidTypeFromRecipients(recipients);
 
-          if (aidArticle) {
-            // Create order entries for each recipient
-            const orderRows: OrderInsertRow[] = recipients.map(recipient => ({
-                article_id: aidArticle.id,
-                quantity_ordered: 1, // Aid is per recipient
-                order_date: new Date().toISOString().split('T')[0],
-                status: 'pending',
-                supplier_name: null,
-                supplier_contact: null,
-                unit_price: parseFloat(recipient.fund_requested) || 0,
-                total_amount: parseFloat(recipient.fund_requested) || 0,
-                notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
-                fund_request_id: fundRequest.id,
-              }));
+          const orderRows: OrderInsertRow[] = [];
+          for (const recipient of recipients) {
+            const target = await resolveAidOrderTarget(recipient, effectiveAidType);
+            if (!target) {
+              console.warn(
+                `Could not resolve Aid article for recipient "${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}" in ${fundRequest.fund_request_number}.`
+              );
+              continue;
+            }
 
+            orderRows.push({
+              article_id: target.articleId,
+              quantity_ordered: target.quantity,
+              order_date: new Date().toISOString().split('T')[0],
+              status: 'pending',
+              supplier_name: null,
+              supplier_contact: null,
+              unit_price: parseFloat(recipient.fund_requested) || 0,
+              total_amount: parseFloat(recipient.fund_requested) || 0,
+              notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
+              fund_request_id: fundRequest.id,
+            });
+          }
+
+          if (orderRows.length > 0) {
             await insertOrderEntriesForFundRequest(orderRows);
             console.log(`Created ${orderRows.length} order entries for Aid fund request: ${fundRequest.fund_request_number}`);
           } else {
-            console.warn(`No Aid article found matching aid_type: ${data.fundRequest.aid_type}. Order entries not created.`);
+            console.warn(`No Aid order entries created for ${fundRequest.fund_request_number}.`);
           }
         } catch (orderError) {
           console.error('Error creating order entries for Aid fund request:', orderError);
@@ -757,30 +901,41 @@ export const updateFundRequest = async (
 
         // Create new order entries for Aid fund requests
         const updatedFundRequest = await fetchFundRequestById(id);
-        if (updatedFundRequest?.aid_type && recipients && recipients.length > 0) {
+        if (recipients && recipients.length > 0) {
           try {
-            // Find the article_id by matching aid_type with articles where item_type='Aid'
-            const aidArticle = await findAidArticle(updatedFundRequest.aid_type);
+            const effectiveAidType =
+              String(updatedFundRequest?.aid_type || '').trim() ||
+              inferAidTypeFromRecipients(recipients);
 
-            if (aidArticle) {
-              // Create order entries for each recipient
-              const orderRows: OrderInsertRow[] = recipients.map(recipient => ({
-                  article_id: aidArticle.id,
-                  quantity_ordered: 1, // Aid is per recipient
-                  order_date: new Date().toISOString().split('T')[0],
-                  status: 'pending',
-                  supplier_name: null,
-                  supplier_contact: null,
-                  unit_price: parseFloat(recipient.fund_requested) || 0,
-                  total_amount: parseFloat(recipient.fund_requested) || 0,
-                  notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
-                  fund_request_id: id,
-                }));
+            const orderRows: OrderInsertRow[] = [];
+            for (const recipient of recipients) {
+              const target = await resolveAidOrderTarget(recipient, effectiveAidType);
+              if (!target) {
+                console.warn(
+                  `Could not resolve Aid article for recipient "${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}" in ${fundRequest.fund_request_number}.`
+                );
+                continue;
+              }
 
+              orderRows.push({
+                article_id: target.articleId,
+                quantity_ordered: target.quantity,
+                order_date: new Date().toISOString().split('T')[0],
+                status: 'pending',
+                supplier_name: null,
+                supplier_contact: null,
+                unit_price: parseFloat(recipient.fund_requested) || 0,
+                total_amount: parseFloat(recipient.fund_requested) || 0,
+                notes: `Created from Aid Fund Request: ${fundRequest.fund_request_number} - ${recipient.recipient_name || recipient.name_of_beneficiary || 'Recipient'}`,
+                fund_request_id: id,
+              });
+            }
+
+            if (orderRows.length > 0) {
               await insertOrderEntriesForFundRequest(orderRows);
               console.log(`Created ${orderRows.length} order entries for Aid fund request update: ${fundRequest.fund_request_number}`);
             } else {
-              console.warn(`No Aid article found matching aid_type: ${updatedFundRequest.aid_type}. Order entries not created.`);
+              console.warn(`No Aid order entries created for update ${fundRequest.fund_request_number}.`);
             }
           } catch (orderError) {
             console.error('Error creating order entries for Aid fund request update:', orderError);
