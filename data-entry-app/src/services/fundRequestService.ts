@@ -231,7 +231,9 @@ const resolveAidTargetFromMasterEntry = async (
   const aidHint = String(preferredAidType || aidLabel || '').trim();
   const beneficiaryType = String(recipient.beneficiary_type || '').trim();
 
-  const pickAidRow = (rows: any[] | null | undefined): { article_id: string; quantity: number } | null => {
+  const pickAidRow = (
+    rows: any[] | null | undefined
+  ): { article_id: string; quantity: number } | null => {
     if (!rows || rows.length === 0) return null;
 
     const normalized = rows
@@ -254,11 +256,17 @@ const resolveAidTargetFromMasterEntry = async (
         textMatches(row.articleName, aidHint) || textMatches(row.category, aidHint)
       );
       if (matched) {
-        return { article_id: matched.articleId, quantity: matched.quantity };
+        return {
+          article_id: matched.articleId,
+          quantity: 1,
+        };
       }
     }
 
-    return { article_id: normalized[0].articleId, quantity: normalized[0].quantity };
+    return {
+      article_id: normalized[0].articleId,
+      quantity: 1,
+    };
   };
 
   if (beneficiaryType === 'District') {
