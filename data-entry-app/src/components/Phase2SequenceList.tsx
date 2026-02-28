@@ -232,6 +232,7 @@ const Phase2SequenceList: React.FC = () => {
   const [sequenceStart, setSequenceStart] = useState(1);
   const [unassignedSearch, setUnassignedSearch] = useState('');
   const [unassignedCategoryFilter, setUnassignedCategoryFilter] = useState('all');
+  const [assignedCategoryFilter, setAssignedCategoryFilter] = useState('all');
   const [sourceRows, setSourceRows] = useState<SequenceSourceRow[]>([]);
 
   const sequence2025Map = useMemo(
@@ -273,6 +274,21 @@ const Phase2SequenceList: React.FC = () => {
       return matchesSearch && matchesCategory;
     });
   }, [unassignedItems, unassignedSearch, unassignedCategoryFilter, categoryByItem]);
+  const assignedCategoryOptions = useMemo(
+    () =>
+      Array.from(new Set(assignedItems.map((row) => categoryByItem.get(row.item) || 'Uncategorized'))).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' })
+      ),
+    [assignedItems, categoryByItem]
+  );
+  const filteredAssignedItems = useMemo(
+    () =>
+      assignedItems.filter((row) => {
+        const category = categoryByItem.get(row.item) || 'Uncategorized';
+        return assignedCategoryFilter === 'all' || category === assignedCategoryFilter;
+      }),
+    [assignedItems, categoryByItem, assignedCategoryFilter]
+  );
 
   useEffect(() => {
     if (unassignedCategoryFilter === 'all') return;
@@ -280,6 +296,13 @@ const Phase2SequenceList: React.FC = () => {
       setUnassignedCategoryFilter('all');
     }
   }, [unassignedCategoryFilter, unassignedCategoryOptions]);
+
+  useEffect(() => {
+    if (assignedCategoryFilter === 'all') return;
+    if (!assignedCategoryOptions.includes(assignedCategoryFilter)) {
+      setAssignedCategoryFilter('all');
+    }
+  }, [assignedCategoryFilter, assignedCategoryOptions]);
 
   const sequenceByItem = useMemo(() => {
     const start = Number.isFinite(sequenceStart) && sequenceStart > 0 ? Math.floor(sequenceStart) : 1;
@@ -791,6 +814,14 @@ const Phase2SequenceList: React.FC = () => {
               >
                 Select All
               </button>
+              <button
+                type="button"
+                onClick={() => setSelectedLeft(new Set())}
+                disabled={selectedLeft.size === 0}
+                className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                Deselect All
+              </button>
               <select
                 value={unassignedCategoryFilter}
                 onChange={(e) => setUnassignedCategoryFilter(e.target.value)}
@@ -875,10 +906,22 @@ const Phase2SequenceList: React.FC = () => {
           <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2">
             <div className="text-sm font-semibold text-gray-800 dark:text-gray-100">Sequenced Items</div>
             <div className="flex items-center gap-2">
+              <select
+                value={assignedCategoryFilter}
+                onChange={(e) => setAssignedCategoryFilter(e.target.value)}
+                className="w-40 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              >
+                <option value="all">All Categories</option>
+                {assignedCategoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
-                onClick={() => setSelectedRight(new Set(assignedItems.map((row) => row.item)))}
-                disabled={assignedItems.length === 0}
+                onClick={() => setSelectedRight(new Set(filteredAssignedItems.map((row) => row.item)))}
+                disabled={filteredAssignedItems.length === 0}
                 className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-xs hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
               >
                 Select All
@@ -894,11 +937,11 @@ const Phase2SequenceList: React.FC = () => {
             </div>
           </div>
           <div className="max-h-[65vh] overflow-auto p-2">
-            {assignedItems.length === 0 ? (
+            {filteredAssignedItems.length === 0 ? (
               <div className="text-sm text-gray-500 dark:text-gray-400 p-2">No sequenced items yet.</div>
             ) : (
               <div className="space-y-1">
-                {assignedItems.map((row) => (
+                {filteredAssignedItems.map((row) => (
                   <div
                     key={row.item}
                     draggable
