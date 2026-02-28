@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileUp, Minus, Plus, RefreshCw, Search, Upload } from 'lucide-react';
+import { Download, FileUp, Minus, Plus, RefreshCw, Save, Search, Upload } from 'lucide-react';
 import { exportToCSV } from '../utils/csvExport';
 import { useNotifications } from '../contexts/NotificationContext';
 import {
@@ -367,6 +367,7 @@ const Phase2HallStageSplit: React.FC = () => {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [isLoading, setIsLoading] = useState(false);
   const [isSavingUpload, setIsSavingUpload] = useState(false);
+  const [isSavingNow, setIsSavingNow] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [mergedAuditRows, setMergedAuditRows] = useState<MergedAuditRow[]>([]);
 
@@ -666,8 +667,35 @@ const Phase2HallStageSplit: React.FC = () => {
       } catch (error) {
         console.error('Failed to persist seat quantity change:', error);
         showError('Failed to save one row. Click refresh to reload latest data.');
+      } finally {
+        delete debounceTimersRef.current[rowId];
       }
     }, 400);
+  };
+
+  const handleSaveNow = async () => {
+    if (allRows.length === 0) {
+      showWarning('No rows to save.');
+      return;
+    }
+
+    Object.values(debounceTimersRef.current).forEach((timer) => clearTimeout(timer));
+    debounceTimersRef.current = {};
+
+    try {
+      setIsSavingNow(true);
+      await Promise.all(
+        allRows.map((row) =>
+          updateSeatAllocationRowQuantities(row.id, row.waitingHallQuantity, row.tokenQuantity)
+        )
+      );
+      showSuccess(`Saved ${allRows.length} row(s).`);
+    } catch (error) {
+      console.error('Save now failed:', error);
+      showError('Failed to save one or more rows.');
+    } finally {
+      setIsSavingNow(false);
+    }
   };
 
   const handleWaitingQuantityChange = (rowId: string, rawValue: string) => {
@@ -693,6 +721,22 @@ const Phase2HallStageSplit: React.FC = () => {
         if (row.id !== rowId) return row;
         const nextWaiting = Math.max(0, Math.min(row.quantity, row.waitingHallQuantity + delta));
         const nextToken = row.quantity - nextWaiting;
+        persistRowQuantity(row.id, nextWaiting, nextToken);
+        return {
+          ...row,
+          waitingHallQuantity: nextWaiting,
+          tokenQuantity: nextToken,
+        };
+      })
+    );
+  };
+
+  const handleTokenQuantityStep = (rowId: string, delta: number) => {
+    setAllRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+        const nextToken = Math.max(0, Math.min(row.quantity, row.tokenQuantity + delta));
+        const nextWaiting = row.quantity - nextToken;
         persistRowQuantity(row.id, nextWaiting, nextToken);
         return {
           ...row,
@@ -854,6 +898,15 @@ const Phase2HallStageSplit: React.FC = () => {
               >
                 <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveNow}
+                disabled={allRows.length === 0 || isSavingNow}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-700 dark:text-indigo-300 text-sm hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {isSavingNow ? 'Saving...' : 'Save Now'}
               </button>
               <button
                 type="button"
@@ -1077,6 +1130,7 @@ const Phase2HallStageSplit: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleWaitingQuantityStep(row.id, -1)}
+                          disabled={row.waitingHallQuantity <= 0}
                           className="p-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
                           aria-label="Decrease waiting hall quantity"
                         >
@@ -1094,6 +1148,7 @@ const Phase2HallStageSplit: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleWaitingQuantityStep(row.id, 1)}
+                          disabled={row.waitingHallQuantity >= row.quantity}
                           className="p-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
                           aria-label="Increase waiting hall quantity"
                         >
@@ -1101,7 +1156,31 @@ const Phase2HallStageSplit: React.FC = () => {
                         </button>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-right font-medium text-green-700 dark:text-green-400">{row.tokenQuantity}</td>
+                    <td className="px-3 py-2">
+                      <div className="ml-auto w-28 flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleTokenQuantityStep(row.id, -1)}
+                          disabled={row.tokenQuantity <= 0}
+                          className="p-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          aria-label="Decrease token quantity"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <div className="w-14 text-center px-1 py-1 rounded border border-transparent text-right font-medium text-green-700 dark:text-green-400">
+                          {row.tokenQuantity}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleTokenQuantityStep(row.id, 1)}
+                          disabled={row.tokenQuantity >= row.quantity}
+                          className="p-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          aria-label="Increase token quantity"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
