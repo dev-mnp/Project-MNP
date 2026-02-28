@@ -135,6 +135,17 @@ const parseNumeric = (value: unknown): number => {
   return 0;
 };
 
+const normalizeBeneficiaryType = (value: string): string =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+const isInstitutionType = (value: string): boolean => {
+  const normalized = normalizeBeneficiaryType(value);
+  return normalized === 'institution' || normalized === 'institutions' || normalized === 'instn';
+};
+
 const mergeMasterRowValues = (
   existingMasterRow: Record<string, any>,
   incomingMasterRow: Record<string, any>,
@@ -359,7 +370,7 @@ const Phase2HallStageSplit: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [mergedAuditRows, setMergedAuditRows] = useState<MergedAuditRow[]>([]);
 
-  const normalizedType = beneficiaryTypeFilter.toLowerCase();
+  const normalizedType = normalizeBeneficiaryType(beneficiaryTypeFilter);
   const isDistrictType = normalizedType === 'district';
   const isInstitutionLikeType = normalizedType === 'institutions' || normalizedType === 'others';
   const isPublicType = normalizedType === 'public';
@@ -367,8 +378,10 @@ const Phase2HallStageSplit: React.FC = () => {
 
   const districtOptions = useMemo(() => {
     const typeScopedRows = allRows.filter((row) => {
-      if (isDistrictType) return row.beneficiaryType.toLowerCase() === 'district';
-      if (isInstitutionLikeType) return row.beneficiaryType.toLowerCase() === normalizedType;
+      const rowType = normalizeBeneficiaryType(row.beneficiaryType);
+      if (isDistrictType) return rowType === 'district';
+      if (normalizedType === 'institutions') return isInstitutionType(rowType);
+      if (isInstitutionLikeType) return rowType === normalizedType;
       return false;
     });
 
@@ -389,7 +402,9 @@ const Phase2HallStageSplit: React.FC = () => {
   const articleOptions = useMemo(() => {
     const baseRows = allRows.filter((row) => {
       if (beneficiaryTypeFilter === 'all') return true;
-      return row.beneficiaryType.toLowerCase() === normalizedType;
+      const rowType = normalizeBeneficiaryType(row.beneficiaryType);
+      if (normalizedType === 'institutions') return isInstitutionType(rowType);
+      return rowType === normalizedType;
     });
 
     const scopedRows = baseRows.filter((row) => {
@@ -405,8 +420,13 @@ const Phase2HallStageSplit: React.FC = () => {
   const visibleRows = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return allRows.filter((row) => {
-      const type = row.beneficiaryType.toLowerCase();
-      const matchesType = beneficiaryTypeFilter === 'all' || type === beneficiaryTypeFilter;
+      const rowType = normalizeBeneficiaryType(row.beneficiaryType);
+      const matchesType =
+        beneficiaryTypeFilter === 'all'
+          ? true
+          : normalizedType === 'institutions'
+            ? isInstitutionType(rowType)
+            : rowType === normalizedType;
       if (!matchesType) return false;
       if (isPrimaryFilterEnabled && districtFilter !== 'all') {
         if (isDistrictType && row.district !== districtFilter) return false;

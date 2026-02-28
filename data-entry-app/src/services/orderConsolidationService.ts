@@ -3,7 +3,6 @@ import { fetchDistrictBeneficiaryEntriesGrouped } from './districtBeneficiarySer
 import { fetchInstitutionBeneficiaryEntriesGrouped } from './institutionBeneficiaryService';
 import { fetchAllArticles } from './articlesService';
 import type { MasterEntryRecord, ArticleSelection } from '../data/mockData';
-import { getOrderSummaryByArticle } from './orderService';
 import type { ArticleOrderSummary } from './orderService';
 
 export interface ConsolidatedArticle {
@@ -239,64 +238,62 @@ export const getConsolidatedOrdersWithTracking = async (): Promise<OrderConsolid
   console.debug('getConsolidatedOrdersWithTracking: Starting fetch with tracking');
   
   try {
-    // First get the consolidated orders (with split names)
+    // First get the consolidated orders (needed quantity split by "+")
     const consolidation = await getConsolidatedOrders();
-    
-    // Fetch all articles to find matches for split names
-    const allArticles = await fetchAllArticles(true);
-    
-    // Build a map: splitName -> array of article_ids that contain this split name
-    const splitNameToArticleIds = new Map<string, string[]>();
-    
-    // Pre-process all articles to build the mapping
-    allArticles.forEach(article => {
-      const splitNames = splitAndNormalizeArticleName(article.article_name);
-      splitNames.forEach(splitName => {
-        if (!splitNameToArticleIds.has(splitName)) {
-          splitNameToArticleIds.set(splitName, []);
+
+    // Build ordered/received totals using the same split-by-"+" logic as needed quantity.
+    // This avoids mismatches where master has combo names but order entries are split components.
+    const orderedBySplitName = new Map<string, number>();
+    const receivedBySplitName = new Map<string, number>();
+
+    const { data: orderEntries, error: orderError } = await withTimeoutAndRetry(async () => {
+      const { data, error } = await supabase
+        .from('order_entries')
+        .select(`
+          quantity_ordered,
+          status,
+          articles:article_id (
+            article_name
+          )
+        `);
+      if (error) throw error;
+      return { data, error: null };
+    }, 1, 15000);
+
+    if (orderError) {
+      throw orderError;
+    }
+
+    (orderEntries || []).forEach((entry: any) => {
+      if (entry.status === 'cancelled') return;
+
+      const quantityOrdered = Number(entry.quantity_ordered || 0);
+      if (!Number.isFinite(quantityOrdered) || quantityOrdered <= 0) return;
+
+      const articleName = entry.articles?.article_name || '';
+      if (!articleName) return;
+
+      const splitNames = splitAndNormalizeArticleName(articleName);
+      splitNames.forEach((splitName) => {
+        orderedBySplitName.set(
+          splitName,
+          (orderedBySplitName.get(splitName) || 0) + quantityOrdered
+        );
+
+        if (entry.status === 'received') {
+          receivedBySplitName.set(
+            splitName,
+            (receivedBySplitName.get(splitName) || 0) + quantityOrdered
+          );
         }
-        splitNameToArticleIds.get(splitName)!.push(article.id);
       });
     });
-    
-    // Collect all unique article IDs that need order summaries
-    const allArticleIdsForOrders = new Set<string>();
-    consolidation.articles.forEach(article => {
-      const matchingIds = splitNameToArticleIds.get(article.articleId) || [];
-      matchingIds.forEach(id => allArticleIdsForOrders.add(id));
-    });
-    
-    // Fetch order summaries for all articles in one batch
-    const allOrderSummaries = await getOrderSummaryByArticle(Array.from(allArticleIdsForOrders));
-    
-    // Map each consolidated article to its order data
+
+    // Map each consolidated article to its split-aware order data
     const articlesWithOrders = consolidation.articles.map(article => {
-      const splitName = article.articleId; // This is the normalized split name
-      const matchingArticleIds = splitNameToArticleIds.get(splitName) || [];
-      
-      if (matchingArticleIds.length === 0) {
-        // No matching articles found, return with zero orders
-        return {
-          ...article,
-          quantityOrdered: 0,
-          quantityReceived: 0,
-          quantityPending: article.totalQuantity,
-          orderSummary: undefined,
-        };
-      }
-      
-      // Aggregate quantities from all matching articles
-      let totalQuantityOrdered = 0;
-      let totalQuantityReceived = 0;
-      
-      matchingArticleIds.forEach(articleId => {
-        const summary = allOrderSummaries.get(articleId);
-        if (summary) {
-          totalQuantityOrdered += summary.totalQuantityOrdered || 0;
-          totalQuantityReceived += summary.totalQuantityReceived || 0;
-        }
-      });
-      
+      const splitName = article.articleId; // normalized split token
+      const totalQuantityOrdered = orderedBySplitName.get(splitName) || 0;
+      const totalQuantityReceived = receivedBySplitName.get(splitName) || 0;
       const quantityPending = article.totalQuantity - totalQuantityOrdered;
       
       return {

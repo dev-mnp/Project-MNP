@@ -19,6 +19,10 @@ type TokenRow = NotebookInputRow;
 
 const normalizeHeader = (header: string) => header.trim().toLowerCase().replace(/\s+/g, ' ');
 const normalizeText = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+const isInstitutionType = (value: string) => {
+  const normalized = normalizeText(value);
+  return normalized === 'institution' || normalized === 'institutions' || normalized === 'instn';
+};
 
 const findHeaderName = (headers: string[], candidates: string[]): string | null => {
   const byNormalized = new Map(headers.map((h) => [normalizeHeader(h), h]));
@@ -98,7 +102,7 @@ const parseAppAndName = (rawName: string): { appNo: string; name: string } => {
 
 const toLegacyBeneficiaryType = (type: string): string => {
   const normalized = normalizeText(type);
-  if (normalized === 'institutions') return 'Institution';
+  if (isInstitutionType(normalized)) return 'Institution';
   if (normalized === 'district') return 'District';
   if (normalized === 'public') return 'Public';
   if (normalized === 'others') return 'Others';
@@ -534,7 +538,7 @@ const Phase2TokenModule: React.FC = () => {
   };
 
   const exportInstitutionList = () => {
-    const rowsToExport = generatedRows.filter((r) => normalizeText(r.beneficiaryType) === 'institutions');
+    const rowsToExport = generatedRows.filter((r) => isInstitutionType(r.beneficiaryType));
     if (!rowsToExport.length) {
       showWarning('No institution token rows found.');
       return;
