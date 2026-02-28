@@ -7,7 +7,6 @@ import {
   updateSeatAllocationSequenceData,
 } from '../services/seatAllocationService';
 import { exportToCSV } from '../utils/csvExport';
-import { supabase } from '../lib/supabase';
 import { SEQUENCE_2025_DEFAULT } from '../data/sequenceList2025';
 
 type SourceMode = 'db' | 'csv';
@@ -131,71 +130,6 @@ const overlapScore = (a: Set<string>, b: Set<string>): number => {
   return denom ? common / denom : 0;
 };
 
-const includesAny = (value: string, keywords: string[]): boolean => keywords.some((k) => value.includes(k));
-
-const getMovementPriority = (item: string): number => {
-  const n = normalizeItemName(item);
-
-  const heavyKeywords = [
-    'wet grinder',
-    'tilting grinder',
-    'instant grinder',
-    'floor model',
-    'generator',
-    'air conditioner',
-    'pump',
-    'bore well',
-    'power weeder',
-    'chain saw',
-    'wood saw',
-    'steel cupboard',
-    'cupboard',
-    'office table',
-    'table',
-    'chair',
-    'furniture',
-    'ro water',
-    'inverter',
-  ];
-  if (includesAny(n, heavyKeywords)) return 5;
-
-  const firstMoveKeywords = [
-    'tree',
-    'sapling',
-    'goat',
-    'fishing net',
-    'livestock',
-    'auto',
-    'wheeler',
-    'scooter',
-    'vehicle',
-    'sprayer',
-    'weeder',
-    'cutter',
-    'agri',
-  ];
-  if (includesAny(n, firstMoveKeywords) && !n.includes('cycle') && !n.includes('tricycle')) return 1;
-
-  if (n.includes('tricycle')) return 2;
-
-  const gadgetKeywords = [
-    'laptop',
-    'desktop',
-    'printer',
-    'tab',
-    'tablet',
-    'phone',
-    'mobile',
-    'computer',
-    'monitor',
-    'camera',
-    'speaker',
-  ];
-  if (includesAny(n, gadgetKeywords)) return 3;
-
-  return 4;
-};
-
 const toDbSourceRow = (row: SeatAllocationRow): SequenceSourceRow => {
   const baseHeaders = (row.master_headers || []).filter(
     (h) => normalizeHeader(h) !== 'waiting hall quantity' && normalizeHeader(h) !== 'token quantity'
@@ -240,7 +174,6 @@ const Phase2SequenceList: React.FC = () => {
     []
   );
 
-  const [previousSequenceMap, setPreviousSequenceMap] = useState<Map<string, number>>(sequence2025Map);
   const [assignedItems, setAssignedItems] = useState<SequenceItem[]>([]);
   const [unassignedItems, setUnassignedItems] = useState<string[]>([]);
   const [selectedLeft, setSelectedLeft] = useState<Set<string>>(new Set());
@@ -313,41 +246,9 @@ const Phase2SequenceList: React.FC = () => {
     return map;
   }, [assignedItems, sequenceStart]);
 
-  const loadPreviousSequenceMap = async () => {
-    try {
-      const map = new Map(sequence2025Map);
-      const { data, error } = await supabase
-        .from('articles')
-        .select('article_name, sequence_list')
-        .not('sequence_list', 'is', null)
-        .order('article_name', { ascending: true });
-
-      if (error) throw error;
-
-      (data || []).forEach((row: any) => {
-        const item = String(row.article_name || '').trim();
-        const normalized = normalizeItemName(item);
-        const seq = Number(row.sequence_list);
-        if (normalized && Number.isFinite(seq) && seq > 0 && !map.has(normalized)) {
-          map.set(normalized, Math.floor(seq));
-        }
-      });
-      setPreviousSequenceMap(map);
-    } catch (error) {
-      console.error('Failed to load previous sequence map:', error);
-      setPreviousSequenceMap(new Map(sequence2025Map));
-    }
-  };
-
   const rebuildLists = (rows: SequenceSourceRow[], preserveCurrent = true, forceUnassignedAll = false) => {
     const filtered = includeOnlyTokenRows ? rows.filter((row) => row.tokenQuantity > 0) : rows;
     const uniqueItems = Array.from(new Set(filtered.map((row) => row.requestedItem.trim()).filter(Boolean)));
-
-    const tokenQtyByItem = new Map<string, number>();
-    filtered.forEach((row) => {
-      const key = row.requestedItem.trim();
-      tokenQtyByItem.set(key, (tokenQtyByItem.get(key) || 0) + (row.tokenQuantity || 0));
-    });
 
     const currentOrdered = preserveCurrent ? assignedItems.map((a) => a.item) : [];
 
@@ -362,7 +263,7 @@ const Phase2SequenceList: React.FC = () => {
 
     uniqueItems.forEach((item) => {
       const normalized = normalizeItemName(item);
-      const exact = previousSequenceMap.get(normalized);
+      const exact = sequence2025Map.get(normalized);
       if (exact && exact > 0) {
         fallbackOrderMap.set(item, exact);
         return;
@@ -397,40 +298,15 @@ const Phase2SequenceList: React.FC = () => {
       currentOrdered.forEach((item) => {
         if (uniqueSet.has(item)) assigned.push({ item });
       });
-
-      if (!preserveCurrent && assigned.length === 0) {
-        const suggested = [...uniqueItems].sort((a, b) => {
-          const aFallback = fallbackOrderMap.get(a) || Number.MAX_SAFE_INTEGER;
-          const bFallback = fallbackOrderMap.get(b) || Number.MAX_SAFE_INTEGER;
-          if (aFallback !== bFallback) return aFallback - bFallback;
-
-          const aPriority = getMovementPriority(a);
-          const bPriority = getMovementPriority(b);
-          if (aPriority !== bPriority) return aPriority - bPriority;
-
-          const tokenDiff = (tokenQtyByItem.get(b) || 0) - (tokenQtyByItem.get(a) || 0);
-          if (tokenDiff !== 0) return tokenDiff;
-
-          return a.localeCompare(b, undefined, { sensitivity: 'base' });
-        });
-        suggested.forEach((item) => assigned.push({ item }));
-      }
     }
 
     const assignedSet = new Set(assigned.map((a) => a.item));
     const unassigned = uniqueItems
       .filter((item) => !assignedSet.has(item))
       .sort((a, b) => {
-        const aPriority = getMovementPriority(a);
-        const bPriority = getMovementPriority(b);
-        if (aPriority !== bPriority) return aPriority - bPriority;
-
         const aFallback = fallbackOrderMap.get(a) || Number.MAX_SAFE_INTEGER;
         const bFallback = fallbackOrderMap.get(b) || Number.MAX_SAFE_INTEGER;
         if (aFallback !== bFallback) return aFallback - bFallback;
-
-        const tokenDiff = (tokenQtyByItem.get(b) || 0) - (tokenQtyByItem.get(a) || 0);
-        if (tokenDiff !== 0) return tokenDiff;
 
         return a.localeCompare(b, undefined, { sensitivity: 'base' });
       });
@@ -442,14 +318,10 @@ const Phase2SequenceList: React.FC = () => {
   };
 
   useEffect(() => {
-    void loadPreviousSequenceMap();
-  }, []);
-
-  useEffect(() => {
     if (!sourceRows.length) return;
     rebuildLists(sourceRows, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeOnlyTokenRows, previousSequenceMap]);
+  }, [includeOnlyTokenRows]);
 
   const handleLoadFromDb = async () => {
     try {
@@ -466,7 +338,7 @@ const Phase2SequenceList: React.FC = () => {
       const mappedRows = rows.map(toDbSourceRow);
       setSourceRows(mappedRows);
       setSourceFileName(rows[0]?.source_file_name || 'seat_allocation_db');
-      rebuildLists(mappedRows, false, false);
+      rebuildLists(mappedRows, false, true);
       showSuccess(`Loaded ${mappedRows.length} rows.`);
     } catch (error) {
       console.error('Failed to load sequence source from DB:', error);
@@ -522,7 +394,7 @@ const Phase2SequenceList: React.FC = () => {
 
       setSourceRows(csvRows);
       setSourceFileName(file.name);
-      rebuildLists(csvRows, false, false);
+      rebuildLists(csvRows, false, true);
       showSuccess(`Loaded ${csvRows.length} rows from CSV.`);
     } catch (error) {
       console.error('Failed to parse CSV for sequence list:', error);
