@@ -374,6 +374,24 @@ const Phase2SequenceList: React.FC = () => {
       currentOrdered.forEach((item) => {
         if (uniqueSet.has(item)) assigned.push({ item });
       });
+
+      if (!preserveCurrent && assigned.length === 0) {
+        const suggested = [...uniqueItems].sort((a, b) => {
+          const aFallback = fallbackOrderMap.get(a) || Number.MAX_SAFE_INTEGER;
+          const bFallback = fallbackOrderMap.get(b) || Number.MAX_SAFE_INTEGER;
+          if (aFallback !== bFallback) return aFallback - bFallback;
+
+          const aPriority = getMovementPriority(a);
+          const bPriority = getMovementPriority(b);
+          if (aPriority !== bPriority) return aPriority - bPriority;
+
+          const tokenDiff = (tokenQtyByItem.get(b) || 0) - (tokenQtyByItem.get(a) || 0);
+          if (tokenDiff !== 0) return tokenDiff;
+
+          return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+        suggested.forEach((item) => assigned.push({ item }));
+      }
     }
 
     const assignedSet = new Set(assigned.map((a) => a.item));
@@ -425,7 +443,7 @@ const Phase2SequenceList: React.FC = () => {
       const mappedRows = rows.map(toDbSourceRow);
       setSourceRows(mappedRows);
       setSourceFileName(rows[0]?.source_file_name || 'seat_allocation_db');
-      rebuildLists(mappedRows, false, true);
+      rebuildLists(mappedRows, false, false);
       showSuccess(`Loaded ${mappedRows.length} rows.`);
     } catch (error) {
       console.error('Failed to load sequence source from DB:', error);
@@ -481,7 +499,7 @@ const Phase2SequenceList: React.FC = () => {
 
       setSourceRows(csvRows);
       setSourceFileName(file.name);
-      rebuildLists(csvRows, false, true);
+      rebuildLists(csvRows, false, false);
       showSuccess(`Loaded ${csvRows.length} rows from CSV.`);
     } catch (error) {
       console.error('Failed to parse CSV for sequence list:', error);
